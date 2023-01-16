@@ -2,6 +2,7 @@
     df = exampledata(:gk)
     ns = (:logcpi, :logip, :ff, :ebp, :ff4_tc)
     r = fit(VARProcess, df, ns, 12)
+    @test nvar(r) == 5
     ols = r.est
     @test size(modelmatrix(ols)) == (258, 61)
     @test size(coef(ols)) == (61, 5)
@@ -49,4 +50,18 @@
     @test !hasintercept(r1)
     var1 = VARProcess(r1)
     @test !hasintercept(var1)
+
+    ns = (3, 4, 6, 11)
+    r1 = fit(VARProcess, df, ns, 12, adjust_dofr=false)
+    Σ = residvcov(r1)
+    @test Σ ≈ [
+        0.043357786411966 -0.002194349997733 0.002297628117896 -0.006135605156378;
+        -0.002194349997733 0.272176848966891 0.023797162980070 -0.011319834639549;
+        0.002297628117896  0.023797162980070 0.091140582684260 -0.005953911853670;
+        -0.006135605156378 -0.011319834639549 -0.005953911853670 0.056440212782381
+    ] atol = 1e-9
+    irf = impulse(r1, view(cholesky(Σ).L,:,3), 12)
+    @test irf[:,1] ≈ [0, 0, 0.298189426480482, -0.015448274525535] atol = 1e-9
+    @test irf[:,13] ≈ [0.094667717478073, -0.070015879139003, 0.200478062062664,
+        -0.008510989701613] atol = 1e-9
 end

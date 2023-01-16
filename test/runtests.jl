@@ -2,8 +2,9 @@ using Test
 using AutoregressiveModels
 
 using CSV
+using ConfidenceBands
 using DataFrames
-using LinearAlgebra: diagm, I
+using LinearAlgebra: diagm, I, cholesky
 using LocalProjections: datafile
 
 exampledata(name) = CSV.read(datafile(name), DataFrame)

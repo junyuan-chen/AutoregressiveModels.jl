@@ -1,5 +1,6 @@
 module AutoregressiveModels
 
+using Base: ReshapedArray
 using LinearAlgebra: cholesky!, lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I
 using MatrixEquations: lyapd
 using Random: randn!
@@ -31,7 +32,10 @@ export VARProcess,
        VectorAutoregression,
        biascorrect,
 
-       boot!
+       randomindex,
+       wilddraw!,
+       iidresiddraw!,
+       bootstrap!
 
 include("utils.jl")
 include("process.jl")

@@ -39,11 +39,11 @@
     εs2 = fill(0.1, 3, 2, 2)
     @test simulate!(εs2, var1) ≈ εs1[:,3:4,:]
     εs1 = fill(0.1, 3, 4, 2)
-    @test_throws DimensionMismatch simulate!(εs1, var1, zeros(3, 2))
+    @test_throws DimensionMismatch simulate!(εs1, var1, zeros(3, 2, 3))
 
     irf = zeros(3, 5)
     impulse!(irf, var1, [1,0,0])
-    @test_throws DimensionMismatch impulse!(irf, var1, I(3))
+    @test_throws MethodError impulse!(irf, var1, I(3))
     irf = zeros(3, 5, 3)
     impulse!(irf, var1, I(3))
     @test irf[:,1,:] == I(3)

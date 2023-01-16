@@ -1,3 +1,6 @@
+# An alternative to reshape that does not allocate
+_reshape(A::AbstractArray, dims::Int...) = ReshapedArray(A, dims, ())
+
 # Check whether the input data is a column table
 function checktable(data)
     Tables.istable(data) ||

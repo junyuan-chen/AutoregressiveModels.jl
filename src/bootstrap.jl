@@ -30,7 +30,9 @@ function _fitvar!(data::Matrix, m::OLS, nlag, nocons)
     _fit!(m)
 end
 
-function _default_fillresids!(out, r::VectorAutoregression)
+randomindex(r::VectorAutoregression) = sample(1:size(residuals(r),1))
+
+function wilddraw!(out, r::VectorAutoregression)
     randn!(view(out, :, 1))
     K = size(out, 2)
     if K > 1
@@ -39,11 +41,19 @@ function _default_fillresids!(out, r::VectorAutoregression)
         end
     end
     out .*= residuals(r)
+    return out
 end
 
-_default_initialindex(r::VectorAutoregression) = sample(1:size(residuals(r),1))
+function iidresiddraw!(out, r::VectorAutoregression)
+    T = size(out,1)
+    for i in 1:T
+        idraw = sample(1:T)
+        copyto!(view(out, i, :), view(residuals(r), idraw, :))
+    end
+    return out
+end
 
-function _boot!(ks, stats, r::VectorAutoregression, var, initialindex, fillresids!,
+function _bootstrap!(ks, stats, r::VectorAutoregression, var, initialindex, drawresid,
         estimatevar, allbootdata)
     keepbootdata = allbootdata isa Vector
     T, N = size(residuals(r))
@@ -54,35 +64,30 @@ function _boot!(ks, stats, r::VectorAutoregression, var, initialindex, fillresid
     if estimatevar
         m = deepcopy(r.est)
         rk = VectorAutoregression(m, r.names, r.lookup, r.nocons)
-        _fr(x, k) = x[2]((out=view(x[1], :, k), data=bootdata, r=rk))
-        _f = _fr
     else
-        _fnor(x, k) = x[2]((out=view(x[1], :, k), data=bootdata))
-        _f = _fnor
+        rk = nothing
     end
-    X1s = reshape(view(X0, :, hasintercept(r) ? (2:NP+1) : 1:NP), T, N, nlag)
+    _f(stat, k) = stat[2]((out=view(stat[1], :, k), data=bootdata, r=rk))
+    X1s = _reshape(view(X0, :, hasintercept(r) ? (2:NP+1) : 1:NP), T, N, nlag)
     Y0s = view(X1s, :, :, nlag:-1:1)
     for k in ks
-        Y0 = view(Y0s, initialindex(r), :, :)
-        fillresids!(view(bootdata, nlag+1:nlag+T, :), r)
-        εs = bootdata'
-        copyto!(view(εs, :, 1:nlag), view(Y0, :, 1:nlag))
+        i0 = initialindex(r)
+        Y0 = view(Y0s, i0, :, :)
+        drawresid(view(bootdata, nlag+1:nlag+T, :), r)
+        copyto!(view(bootdata, 1:nlag, :), Y0')
         for t in nlag+1:nlag+T
-            rlag = t-1:-1:t-nlag
-            var(view(εs, :, t), reshape(view(εs, :, rlag), :))
+            var(view(bootdata, t, :), _reshape(view(bootdata, t-1:-1:t-nlag, :)', N*nlag))
         end
         keepbootdata && (allbootdata[k] = copy(bootdata))
         estimatevar && _fitvar!(bootdata, m, nlag, r.nocons)
-        for stat in stats
-            _f(stat, k)
-        end
+        foreach(stat->_f(stat, k), stats)
     end
 end
 
-function boot!(stats, r::VectorAutoregression;
-        initialindex::Function=_default_initialindex,
-        fillresids!::Function=_default_fillresids!,
-        correctbias::Bool=true, estimatevar::Bool=true,
+function bootstrap!(stats, r::VectorAutoregression;
+        initialindex::Union{Function,Integer}=randomindex,
+        drawresid::Function=wilddraw!,
+        correctbias::Bool=false, estimatevar::Bool=true,
         ntasks::Integer=Threads.nthreads(), keepbootdata::Bool=false)
     stats isa Pair && (stats = (stats,))
     nsample = size(stats[1][1], 2)
@@ -92,6 +97,11 @@ function boot!(stats, r::VectorAutoregression;
             size(stats[s][1], 2) == nsample || throw(ArgumentError(
                 "all matrices for statistics must have the same number of columns"))
         end
+    end
+    if initialindex isa Integer
+        initindex = r -> initialindex
+    else
+        initindex = initialindex
     end
     if correctbias
         if coefcorrected(r) === nothing
@@ -120,12 +130,12 @@ function boot!(stats, r::VectorAutoregression;
         end
         @sync for itask in 1:ntasks
             Threads.@spawn begin
-                _boot!(ks[itask], stats, r, var, initialindex, fillresids!, estimatevar,
+                _bootstrap!(ks[itask], stats, r, var, initindex, drawresid, estimatevar,
                     allbootdata)
             end
         end
     else
-        _boot!(1:nsample, stats, r, var, initialindex, fillresids!, estimatevar, allbootdata)
+        _bootstrap!(1:nsample, stats, r, var, initindex, drawresid, estimatevar, allbootdata)
     end
     return keepbootdata ? allbootdata : nothing
 end

@@ -127,7 +127,7 @@ _toname(data, i::Integer) = Tables.columnnames(data)[i]
 
 function fit(::Type{<:VARProcess}, data, names, nlag::Integer;
         subset::Union{BitVector, Nothing}=nothing,
-        nocons::Bool=false, TF::Type=Float64)
+        nocons::Bool=false, adjust_dofr::Bool=true, TF::Type=Float64)
     checktable(data)
     names isa Symbol && (names = (names,))
     N = length(names)
@@ -154,7 +154,7 @@ function fit(::Type{<:VARProcess}, data, names, nlag::Integer;
         X = X[esampleT, :]
     end
     T = T1
-    dofr = T - size(X,2)
+    dofr = adjust_dofr ? T - size(X,2) : T
     m = OLS(Y, X, esampleT, dofr)
     return VectorAutoregression(m, names,
         Dict{Symbol,Int}(n=>i for (i,n) in enumerate(names)), nocons)
