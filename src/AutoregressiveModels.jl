@@ -1,7 +1,8 @@
 module AutoregressiveModels
 
 using Base: ReshapedArray
-using LinearAlgebra: cholesky!, lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I
+using LinearAlgebra: Cholesky, cholesky!, cholesky, UpperTriangular, LowerTriangular,
+    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I
 using MatrixEquations: lyapd
 using Random: randn!
 using Roots: find_zero, Brent
@@ -29,6 +30,7 @@ export VARProcess,
        OLS,
        coefcorrected,
        residvcov,
+       residchol,
        VectorAutoregression,
        biascorrect,
 

@@ -8,8 +8,11 @@
     @test size(coef(ols)) == (61, 5)
     @test size(residuals(ols)) == (258, 5)
     @test dof_residual(ols) == 197
+    @test coefB(ols) == coef(ols)'[:,2:61]
+    @test intercept(ols) == coef(ols)[1,:]
     @test coefcorrected(ols) === nothing
     @test size(residvcov(ols)) == (5, 5)
+    @test residchol(ols) === nothing
     @test sprint(show, ols) == "OLS regression (258, 5)"
 
     @test coef(r) == coef(ols)
@@ -19,6 +22,12 @@
     @test residvcov(r) == residvcov(ols)
     @test residvcov(r, 1) == residvcov(ols)[1]
     @test residvcov(r, :logip, 3) == residvcov(ols)[2,3]
+
+    r = fit(VARProcess, df, ns, 12, choleskyresid=true)
+    ols = r.est
+    @test residchol(ols)[:,1] ≈ [0.21584923287938163, -0.05256125647882381,
+        0.011050085434558338, -0.0011899788668380145, 0.0012876023706559461] atol = 1e-8
+    @test residchol(ols)[:,5] ≈ [0, 0, 0, 0, 0.037257866506556804] atol = 1e-8
 
     var = VARProcess(r)
     # Compare results with Matlab (QR vs Cholesky)
@@ -33,7 +42,20 @@
     impulse!(irf, r, I(5))
     @test irf[1,10,:] ≈ [0.963812354485012, 0.142430057040239, 0.158895931720420,
         -0.160259976752492, -2.400207853745114] atol = 1e-7
+    irf2 = zeros(5, 10, 5)
+    impulse!(irf2, r, 1:5)
+    @test irf2 ≈ irf
     @test impulse(r, I(5), 9) ≈ irf
+    @test impulse(r, 1:5, 9) ≈ irf
+
+    # simulate uses intercept but impulse does not
+    out = zeros(5, 10, 5)
+    simulate!(out, r, reshape(I(5),5,1,5))
+    @test out[:,2,:] ≈ irf[:,2,:] .+ r.est.intercept
+    out2 = zeros(5, 10, 5)
+    foreach(i->out2[i,1,i]=1, 1:5)
+    simulate!(out2, r)
+    @test out2[:,1,:] ≈ out[:,1,:] .+ r.est.intercept
 
     rc, δ = biascorrect(r, factor=0.1)
     @test δ == 0.1
@@ -50,6 +72,8 @@
     @test !hasintercept(r1)
     var1 = VARProcess(r1)
     @test !hasintercept(var1)
+    rc, δ = biascorrect(r1, factor=0.1)
+    @test δ === nothing
 
     ns = (3, 4, 6, 11)
     r1 = fit(VARProcess, df, ns, 12, adjust_dofr=false)
@@ -63,5 +87,17 @@
     irf = impulse(r1, view(cholesky(Σ).L,:,3), 12)
     @test irf[:,1] ≈ [0, 0, 0.298189426480482, -0.015448274525535] atol = 1e-9
     @test irf[:,13] ≈ [0.094667717478073, -0.070015879139003, 0.200478062062664,
-        -0.008510989701613] atol = 1e-9
+        -0.008510989701613] atol = 1e-8
+    irf2 = zeros(4, 13)
+    @test_throws ArgumentError impulse!(irf2, r1, 3, choleskyshock=true)
+    r1 = fit(VARProcess, df, ns, 12, choleskyresid=true, adjust_dofr=false)
+    impulse!(irf2, r1, 3, choleskyshock=true)
+    @test irf2 ≈ irf
+    @test impulse(r1, 3, 12, choleskyshock=true) ≈ irf
+
+    irf = impulse(r1, view(cholesky(Σ).L,:,3:-1:2), 12)
+    irf2 = zeros(4, 13, 2)
+    impulse!(irf2, r1, 3:-1:2, choleskyshock=true)
+    @test irf2 ≈ irf
+    @test impulse(r1, 3:-1:2, 12, choleskyshock=true) ≈ irf
 end

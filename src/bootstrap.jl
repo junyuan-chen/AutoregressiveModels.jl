@@ -1,15 +1,39 @@
 # An unsafe in-place version of OLS for bootstrap
-function _fit!(m::OLS)
+function _fit!(m::OLS{TF}) where TF
     Y = m.resid
     X = m.X
     coef = m.coef
     mul!(coef, X', Y)
     mul!(m.crossXcache, X', X)
     ldiv!(cholesky!(m.crossXcache), coef)
+    if m.intercept === nothing
+        copyto!(m.coefB, coef')
+    else
+        copyto!(m.coefB, view(coef, 2:size(coef,1), :)')
+        copyto!(m.intercept, view(coef, 1, :))
+    end
     mul!(Y, X, coef, -1.0, 1.0)
     mul!(m.residvcov, Y', Y)
     rdiv!(m.residvcov, m.dofr)
-    return m
+    residchol = m.residchol
+    residcholL = m.residcholL
+    if residchol !== nothing
+        Cfactors = getfield(residchol, :factors)
+        Cuplo = getfield(residchol, :uplo)
+        copyto!(Cfactors, m.residvcov)
+        # residchol could involve changes in immutable objects but it is not used
+        residchol = cholesky!(Cfactors)
+        N = size(m.residvcov, 1)
+        @inbounds for j in 1:N
+            for i in 1:j-1
+                residcholL[i,j] = zero(TF)
+            end
+            for i in j:N
+                residcholL[i,j] = Cuplo === 'U' ? Cfactors[j,i] : Cfactors[i,j]
+            end
+        end
+    end
+    return nothing
 end
 
 # An unsafe version for bootstrap
@@ -54,7 +78,7 @@ function iidresiddraw!(out, r::VectorAutoregression)
 end
 
 function _bootstrap!(ks, stats, r::VectorAutoregression, var, initialindex, drawresid,
-        estimatevar, allbootdata)
+        ::Val{estimatevar}, allbootdata) where estimatevar
     keepbootdata = allbootdata isa Vector
     T, N = size(residuals(r))
     nlag = arorder(r)
@@ -63,11 +87,10 @@ function _bootstrap!(ks, stats, r::VectorAutoregression, var, initialindex, draw
     bootdata = Matrix{Float64}(undef, T+nlag, N)
     if estimatevar
         m = deepcopy(r.est)
-        rk = VectorAutoregression(m, r.names, r.lookup, r.nocons)
+        rk = VectorAutoregression(m, r.names, r.lookup, !hasintercept(r))
     else
         rk = nothing
     end
-    _f(stat, k) = stat[2]((out=view(stat[1], :, k), data=bootdata, r=rk))
     X1s = _reshape(view(X0, :, hasintercept(r) ? (2:NP+1) : 1:NP), T, N, nlag)
     Y0s = view(X1s, :, :, nlag:-1:1)
     for k in ks
@@ -79,23 +102,28 @@ function _bootstrap!(ks, stats, r::VectorAutoregression, var, initialindex, draw
             var(view(bootdata, t, :), _reshape(view(bootdata, t-1:-1:t-nlag, :)', N*nlag))
         end
         keepbootdata && (allbootdata[k] = copy(bootdata))
-        estimatevar && _fitvar!(bootdata, m, nlag, r.nocons)
-        foreach(stat->_f(stat, k), stats)
+        estimatevar && _fitvar!(bootdata, m, nlag, !hasintercept(r))
+        for stat in stats
+            nt = (out=selectdim(stat[1], ndims(stat[1]), k), data=bootdata, r=rk)
+            stat[2](nt)
+        end
     end
 end
 
 function bootstrap!(stats, r::VectorAutoregression;
         initialindex::Union{Function,Integer}=randomindex,
         drawresid::Function=wilddraw!,
-        correctbias::Bool=false, estimatevar::Bool=true,
+        correctbias=false, estimatevar::Bool=true,
         ntasks::Integer=Threads.nthreads(), keepbootdata::Bool=false)
     stats isa Pair && (stats = (stats,))
-    nsample = size(stats[1][1], 2)
+    out1 = stats[1][1]
+    nsample = size(out1, ndims(out1))
     nstat = length(stats)
     if nstat > 1
-        for s in 1:nstat
-            size(stats[s][1], 2) == nsample || throw(ArgumentError(
-                "all matrices for statistics must have the same number of columns"))
+        for k in 1:nstat
+            outk = stats[k][1]
+            size(outk, ndims(outk)) == nsample || throw(ArgumentError(
+                "all arrays for statistics must have the same length in the last dimesion"))
         end
     end
     if initialindex isa Integer
@@ -103,18 +131,25 @@ function bootstrap!(stats, r::VectorAutoregression;
     else
         initindex = initialindex
     end
-    if correctbias
+    if correctbias != false
         if coefcorrected(r) === nothing
-            r, _ = biascorrect(r)
+            if correctbias == true
+                r, δ = biascorrect(r)
+            else
+                r, δ = biascorrect(r; correctbias...)
+            end
         end
-        # Slightly faster simulate! with copied var
-        if hasintercept(r)
+        # biascorrect is not applied if VAR is not stable
+        if δ === nothing
+            var = VARProcess(r)
+        elseif hasintercept(r)
+            # Slightly faster simulate! with copied var
             var = VARProcess(coefcorrected(r)', view(coef(r),1,:), copy=true)
         else
             var = VARProcess(coefcorrected(r)', copy=true)
         end
     else
-        var = VARProcess(r, copy=true)
+        var = VARProcess(r)
     end
     allbootdata = keepbootdata ? Vector{Matrix}(undef, nsample) : nothing
     ntasks = min(ntasks, nsample)
@@ -130,12 +165,12 @@ function bootstrap!(stats, r::VectorAutoregression;
         end
         @sync for itask in 1:ntasks
             Threads.@spawn begin
-                _bootstrap!(ks[itask], stats, r, var, initindex, drawresid, estimatevar,
+                _bootstrap!(ks[itask], stats, r, var, initindex, drawresid, Val(estimatevar),
                     allbootdata)
             end
         end
     else
-        _bootstrap!(1:nsample, stats, r, var, initindex, drawresid, estimatevar, allbootdata)
+        _bootstrap!(1:nsample, stats, r, var, initindex, drawresid, Val(estimatevar), allbootdata)
     end
     return keepbootdata ? allbootdata : nothing
 end

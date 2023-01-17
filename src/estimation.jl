@@ -3,25 +3,52 @@
 
 Data from an ordinary least squares regression.
 """
-struct OLS{TF<:AbstractFloat, TC<:Union{Matrix{TF},Nothing}} <: RegressionModel
+struct OLS{TF<:AbstractFloat, TI<:Union{Vector{TF}, Nothing},
+        TC<:Union{Matrix{TF}, Nothing},
+        CF<:Union{Cholesky{TF, Matrix{TF}}, Nothing},
+        CL<:Union{Matrix{TF}, Nothing}} <: RegressionModel
     X::Matrix{TF}
     crossXcache::Matrix{TF}
     coef::Matrix{TF}
+    coefB::Matrix{TF}
+    intercept::TI
     coefcorrected::TC
     resid::Matrix{TF}
     residvcov::Matrix{TF}
+    residchol::CF
+    residcholL::CL
     esample::BitVector
     dofr::Int
 end
 
-function OLS(Y::AbstractMatrix, X::AbstractMatrix, esample::BitVector, dofr::Int)
+function OLS(Y::AbstractMatrix, X::AbstractMatrix, esample::BitVector, dofr::Int,
+        nocons::Bool, cholresid::Bool)
     X = convert(Matrix, X)
     crossX = X'X
     coef = ldiv!(cholesky!(crossX), X'Y)
+    # Make copies for VARProcess
+    if nocons
+        coefB = collect(coef')
+        intercept = nothing
+    else
+        coefB = coef'[:,2:end]
+        intercept = coef[1,:]
+    end
     resid = mul!(Y, X, coef, -1.0, 1.0)
     dofr = max(1, dofr)
     residvcov = rdiv!(resid'resid, dofr)
-    return OLS(X, crossX, coef, nothing, resid, residvcov, esample, dofr)
+    if cholresid
+        residchol = cholesky(residvcov)
+        Cfactors = getfield(residchol, :factors)
+        Cuplo = getfield(residchol, :uplo)
+        residcholL = collect(Cuplo === 'U' ?
+            UpperTriangular(Cfactors)' : LowerTriangular(Cfactors))
+    else
+        residchol = nothing
+        residcholL = nothing
+    end
+    return OLS(X, crossX, coef, coefB, intercept, nothing, resid, residvcov, residchol,
+        residcholL, esample, dofr)
 end
 
 modelmatrix(m::OLS) = m.X
@@ -29,8 +56,12 @@ coef(m::OLS) = m.coef
 residuals(m::OLS) = m.resid
 dof_residual(m::OLS) = m.dofr
 
+coefB(m::OLS) = m.coefB
+intercept(m::OLS) = m.intercept
 coefcorrected(m::OLS) = m.coefcorrected
 residvcov(m::OLS) = m.residvcov
+# Return the copied lower-triangular matrix instead of factorization
+residchol(m::OLS) = m.residcholL
 
 show(io::IO, ols::OLS) = print(io, "OLS regression ", size(residuals(ols)))
 
@@ -62,22 +93,24 @@ end
 
 Results from vector autoregression estimation.
 """
-struct VectorAutoregression{TE} <: StatisticalModel
+struct VectorAutoregression{TE, HasIntercept} <: StatisticalModel
     est::TE
     names::Vector{Symbol}
     lookup::Dict{Symbol,Int}
-    nocons::Bool
+    VectorAutoregression(est, names::Vector{Symbol}, lookup::Dict{Symbol,Int},
+        nocons::Bool) = new{typeof(est), !nocons}(est, names, lookup)
 end
 
 modelmatrix(r::VectorAutoregression) = modelmatrix(r.est)
 coef(r::VectorAutoregression) = coef(r.est)
 coefcorrected(r::VectorAutoregression) = coefcorrected(r.est)
 residvcov(r::VectorAutoregression) = residvcov(r.est)
+residchol(r::VectorAutoregression) = residchol(r.est)
 residuals(r::VectorAutoregression) = residuals(r.est)
 
 nvar(r::VectorAutoregression) = length(r.names)
 arorder(r::VectorAutoregression) = size(coef(r), 1) ÷ size(coef(r), 2)
-hasintercept(r::VectorAutoregression) = !r.nocons
+hasintercept(::VectorAutoregression{TE, HI}) where {TE, HI} = HI
 
 _varindex(r::VectorAutoregression, name::Symbol) = r.lookup[name]
 _varindex(::VectorAutoregression, id::Integer) = Int(id)
@@ -96,7 +129,7 @@ Base.@propagate_inbounds function coef(r::VectorAutoregression, yid, xid, lag::I
     if xid == :constant || xid == 1
         return coef(r)[1,j]
     else
-        i0 = r.nocons ? 0 : 1
+        i0 = hasintercept(r) ? 1 : 0
         i = i0 + _varindex(r, xid) + (lag-1)*length(r.names)
         return coef(r)[i,j]
     end
@@ -112,11 +145,11 @@ Base.@propagate_inbounds residvcov(r::VectorAutoregression, id1, id2=id1) =
     residvcov(r)[_varindex(r, id1), _varindex(r, id2)]
 
 function VARProcess(r::VectorAutoregression; copy::Bool=false)
-    B = coef(r)'
-    if size(B, 2) % size(B, 1) == 1
-        return VARProcess(view(B,:,2:size(B,2)), view(B,:,1), copy=copy)
+    m = r.est
+    if hasintercept(r)
+        return VARProcess(coefB(m), intercept(m), copy=copy)
     else
-        return VARProcess(B, copy=copy)
+        return VARProcess(coefB(m), copy=copy)
     end
 end
 
@@ -127,7 +160,8 @@ _toname(data, i::Integer) = Tables.columnnames(data)[i]
 
 function fit(::Type{<:VARProcess}, data, names, nlag::Integer;
         subset::Union{BitVector, Nothing}=nothing,
-        nocons::Bool=false, adjust_dofr::Bool=true, TF::Type=Float64)
+        choleskyresid::Bool=false, adjust_dofr::Bool=true,
+        nocons::Bool=false, TF::Type=Float64)
     checktable(data)
     names isa Symbol && (names = (names,))
     N = length(names)
@@ -155,7 +189,7 @@ function fit(::Type{<:VARProcess}, data, names, nlag::Integer;
     end
     T = T1
     dofr = adjust_dofr ? T - size(X,2) : T
-    m = OLS(Y, X, esampleT, dofr)
+    m = OLS(Y, X, esampleT, dofr, nocons, choleskyresid)
     return VectorAutoregression(m, names,
         Dict{Symbol,Int}(n=>i for (i,n) in enumerate(names)), nocons)
 end
@@ -167,10 +201,40 @@ simulate!(εs::AbstractArray, r::VectorAutoregression; nlag::Integer=arorder(r))
     simulate!(εs, VARProcess(r), nlag=nlag)
 
 impulse!(out::AbstractArray, r::VectorAutoregression, ε0::AbstractVecOrMat;
-    nlag::Integer=arorder(r)) = impulse!(out, VARProcess(r), ε0, nlag=nlag)
+    nlag::Integer=arorder(r)) = impulse!(out, VARProcess(coefB(r.est)), ε0, nlag=nlag)
+
+function impulse!(out::AbstractArray, r::VectorAutoregression,
+        ishock::Union{Integer, AbstractRange};
+        nlag::Integer=arorder(r), choleskyshock::Bool=false)
+    if choleskyshock
+        chol = residchol(r)
+        chol === nothing && throw(ArgumentError(
+            "cholesky factorization is not taken for r; see the choleskyresid option of fit"))
+        # view allocates if array dimension changes
+        ishock isa Integer && (ishock = ishock:ishock)
+        ε0 = view(residchol(r), :, ishock)
+        impulse!(out, VARProcess(coefB(r.est)), ε0; nlag=nlag)
+    else
+        impulse!(out, VARProcess(coefB(r.est)), ishock; nlag=nlag)
+    end
+end
 
 impulse(r::VectorAutoregression, ε0::AbstractVecOrMat, nhorz::Integer;
-    nlag::Integer=arorder(r)) = impulse(VARProcess(r), ε0, nhorz, nlag=nlag)
+    nlag::Integer=arorder(r)) = impulse(VARProcess(coefB(r.est)), ε0, nhorz, nlag=nlag)
+
+function impulse(r::VectorAutoregression, ishock::Union{Integer, AbstractRange},
+        nhorz::Integer; nlag::Integer=arorder(r), choleskyshock::Bool=false)
+    if choleskyshock
+        chol = residchol(r)
+        chol === nothing && throw(ArgumentError(
+            "cholesky factorization is not taken for r; see the choleskyresid option of fit"))
+        ishock isa Integer && (ishock = ishock:ishock)
+        ε0 = view(residchol(r), :, ishock)
+        impulse(VARProcess(coefB(r.est)), ε0, nhorz; nlag=nlag)
+    else
+        impulse(VARProcess(coefB(r.est)), ishock, nhorz; nlag=nlag)
+    end
+end
 
 _isstable!(C::AbstractMatrix, offset::Real) =
     abs(eigen!(C, sortby=abs).values[end]) < 1 - offset
@@ -182,10 +246,14 @@ function _biasrelax(δ, B, C, b, T, Blast, offset)
 end
 
 function biascorrect(r::VectorAutoregression;
-        offset::Real=1e-4, factor::Union{Real,Nothing}=nothing,
-        x0=(0,0.999), solver=Brent(), xatol=1e-9, kwargs...)
+        offset::Real=1e-4, factor::Union{Real, Nothing}=nothing,
+        x0=(0, 0.999), solver=Brent(), xatol=1e-9,
+        warnunstable::Bool=true, kwargs...)
     var = VARProcess(r)
-    isstable(var, offset) || return r
+    if !isstable(var, offset)
+        warnunstable && @warn "VAR process is not stable with offset $(offset); bias correction is not conducted"
+        return r, nothing
+    end
     C = companionform(var)
     N, NP = size(var.B)
     G = zeros(NP, NP)
@@ -216,7 +284,8 @@ function biascorrect(r::VectorAutoregression;
     coefc = Matrix{Float64}(undef, NP, N)
     copyto!(coefc, view(B, 1:N, :)')
     m = r.est
-    olsc = OLS(m.X, m.crossXcache, m.coef, coefc, m.resid, m.residvcov, m.esample, m.dofr)
-    return VectorAutoregression(olsc, r.names, r.lookup, r.nocons), δ
+    olsc = OLS(m.X, m.crossXcache, m.coef, m.coefB, m.intercept, coefc, m.resid,
+        m.residvcov, m.residchol, m.residcholL, m.esample, m.dofr)
+    return VectorAutoregression(olsc, r.names, r.lookup, !hasintercept(r)), δ
 end
 

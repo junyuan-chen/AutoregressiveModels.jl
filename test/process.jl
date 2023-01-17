@@ -11,6 +11,7 @@
     @test C1[1:3,:] == B
     @test C1[4:6,:] == diagm(3, 6, 0=>ones(3))
     @test isstable(var1)
+    @test !isstable(var1, 0.5)
 
     εs = fill(0.1, 3)
     var1(εs)
@@ -43,7 +44,19 @@
 
     irf = zeros(3, 5)
     impulse!(irf, var1, [1,0,0])
-    @test_throws MethodError impulse!(irf, var1, I(3))
+    @test irf[:,1] == [1,0,0]
+    @test irf[:,2] ≈ B[:,1]
+    irf2 = zeros(3, 5)
+    impulse!(irf2, var1, 1)
+    @test irf2 ≈ irf
+    impulse!(irf2, var1, 1:1)
+    @test irf2 ≈ irf
+    @test_throws DimensionMismatch impulse!(irf2, var1, 1:2)
+    irf2 = zeros(3, 5, 1)
+    impulse!(irf2, var1, 1:1)
+    @test reshape(irf2, 3, 5) ≈ irf
+
+    @test_throws DimensionMismatch impulse!(irf, var1, I(3))
     irf = zeros(3, 5, 3)
     impulse!(irf, var1, I(3))
     @test irf[:,1,:] == I(3)
@@ -51,8 +64,17 @@
     @test irf[:,5,:] ≈ [1.085951501118779 -1.477729061474453 1.834001023603404;
         -0.047546376340552 0.605943409707762 -0.234294401065066;
         0.001378593197746 -0.012981998312923 -0.001548705260207] atol = 1e-10
+    irf2 = zeros(3, 5, 3)
+    impulse!(irf2, var1, 1:3)
+    @test irf2 ≈ irf
     irf2 = impulse(var1, I(3), 4)
     @test irf2 ≈ irf
+    irf3 = zeros(3, 5, 2)
+    impulse!(irf3, var1, view(I(3),:,3:-1:2))
+    @test irf3[:,5,:] ≈ irf[:,5,3:-1:2]
+    irf4 = zeros(3, 5, 2)
+    impulse!(irf4, var1, 3:-1:2)
+    @test irf4 ≈ irf3
 
     irf = zeros(3, 5)
     impulse!(irf, var1, [0,1,0], nlag=1)
@@ -60,6 +82,15 @@
     @test irf[:,5] ≈ [-0.856166672115337, 0.313653860320074, -0.010442931823260] atol = 1e-10
     irf2 = impulse(var1, [0,1,0], 4, nlag=1)
     @test irf2 ≈ irf
+    irf3 = impulse(var1, 2, 4, nlag=1)
+    @test irf3 ≈ irf2
+
+    irf = impulse(var1, view(I(3),:,3:-1:2), 4, nlag=1)
+    irf2 = zeros(3, 5, 2)
+    impulse!(irf2, var1, view(I(3),:,3:-1:2), nlag=1)
+    @test irf ≈ irf2
+    irf3 = impulse(var1, 3:-1:2, 4, nlag=1)
+    @test irf3 ≈ irf
 
     B1 = [1 0; 0 0.1]
     var2 = VARProcess(B1)
@@ -69,6 +100,7 @@
     C2 = companionform(var2)
     @test C2[1:2,:] == B1
     @test !isstable(var2)
+    @test isstable(var2, -0.01)
 
     εs = fill(0.1, 3)
     var2(εs)

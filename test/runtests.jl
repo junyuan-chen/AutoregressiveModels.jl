@@ -1,6 +1,7 @@
 using Test
 using AutoregressiveModels
 
+using AutoregressiveModels: coefB, intercept
 using CSV
 using ConfidenceBands
 using DataFrames
