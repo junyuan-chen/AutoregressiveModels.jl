@@ -13,7 +13,8 @@ exampledata(name) = CSV.read(datafile(name), DataFrame)
 const tests = [
     "process",
     "estimation",
-    "bootstrap"
+    "bootstrap",
+    "arma"
 ]
 
 printstyled("Running tests:\n", color=:blue, bold=true)

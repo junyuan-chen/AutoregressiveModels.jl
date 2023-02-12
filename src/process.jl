@@ -3,11 +3,15 @@ struct VARProcess{TB<:AbstractMatrix, TI<:Union{AbstractVector,Nothing}}
     B0::TI
     function VARProcess(B::AbstractMatrix{TF},
             B0::Union{AbstractVector{TF}, Nothing}=nothing; copy::Bool=false) where TF
+        Base.require_one_based_indexing(B)
         m, n = size(B)
         n >= m > 0 || throw(ArgumentError(
             "coefficient matrix of size $(size(B)) is not accepted"))
-        B0 === nothing || m == length(B0) || throw(DimensionMismatch(
-            "coefficient matrix of size $(size(B)) does not match intercept of length $(length(B0))"))
+        if B0 !== nothing
+            Base.require_one_based_indexing(B0)
+            m == length(B0) || throw(DimensionMismatch(
+                "coefficient matrix of size $(size(B)) does not match intercept of length $(length(B0))"))
+        end
         n % m == 0 || throw(ArgumentError(
             "coefficient matrix of size $(size(B)) is not accepted"))
         if copy
@@ -53,78 +57,61 @@ end
 (var::VARProcess)(ε::AbstractVecOrMat) = (ε .+= var.B0)
 (var::VARProcess{TB, Nothing} where {TB<:AbstractMatrix})(ε::AbstractVecOrMat) = ε
 
-function simulate!(εs::AbstractMatrix, var::VARProcess, Y0::AbstractVecOrMat;
-        nlag::Integer=arorder(var))
+function simulate!(εs::AbstractMatrix, var::VARProcess,
+        Y0::Union{AbstractVecOrMat,Nothing}=nothing; nlag::Integer=arorder(var))
+    Base.require_one_based_indexing(εs)
     0 < nlag <= arorder(var) || throw(ArgumentError(
         "nlag must be positive and no greater than $(arorder(r))"))
     N = nvar(var)
     size(εs, 1) == N || throw(DimensionMismatch(
         "εs of size $(size(εs)) does not match var with $N variables"))
-    size(Y0, 1) == N || throw(DimensionMismatch(
-        "Y0 of size $(size(Y0)) does not match var with $N variables"))
-    p0 = size(Y0, 2)
-    p0 > nlag && @warn "extra initial values are ignored"
-    rlag0 = max(p0-nlag+1, 1):p0
-    copyto!(view(εs, :, 1:length(rlag0)), view(Y0, :, rlag0))
-    for t in length(rlag0)+1:size(εs, 2)
+    if Y0 === nothing || isempty(Y0)
+        var(view(εs, :, 1))
+        t0 = 1
+    else
+        Base.require_one_based_indexing(Y0)
+        size(Y0, 1) == N || throw(DimensionMismatch(
+            "Y0 of size $(size(Y0)) does not match var with $N variables"))
+        t0 = size(Y0, 2)
+        copyto!(view(εs, :, 1:t0), Y0)
+    end
+    for t in t0+1:size(εs, 2)
         rlag = t-1:-1:max(t-nlag, 1)
         var(view(εs, :, t), _reshape(view(εs, :, rlag), N*length(rlag)))
     end
     return εs
 end
 
-function simulate!(εs::AbstractArray{T1,3}, var::VARProcess, Y0::AbstractArray{T2,3};
-        nlag::Integer=arorder(var)) where {T1,T2}
+function simulate!(εs::AbstractArray{T,3}, var::VARProcess,
+        Y0::Union{AbstractArray,Nothing}=nothing; nlag::Integer=arorder(var)) where T
+    Base.require_one_based_indexing(εs)
     0 < nlag <= arorder(var) || throw(ArgumentError(
         "nlag must be positive and no greater than $(arorder(r))"))
     N = nvar(var)
     size(εs, 1) == N || throw(DimensionMismatch(
         "εs of size $(size(εs)) does not match var with $N variables"))
-    size(Y0, 1) == N || throw(DimensionMismatch(
-        "Y0 of size $(size(Y0)) does not match var with $N variables"))
-    size(εs, 3) == size(Y0, 3) || throw(DimensionMismatch(
-        "Y0 of size $(size(Y0)) does not match εs of size $(size(εs))"))
-    p0 = size(Y0, 2)
-    p0 > nlag && @warn "extra initial values are ignored"
-    rlag0 = max(p0-nlag+1, 1):p0
-    copyto!(view(εs, :, 1:length(rlag0), :), view(Y0, :, rlag0, :))
+    if Y0 === nothing || isempty(Y0)
+        var(view(εs, :, 1, :))
+        t0 = 1
+    else
+        Base.require_one_based_indexing(Y0)
+        size(Y0, 1) == N || throw(DimensionMismatch(
+            "Y0 of size $(size(Y0)) does not match var with $N variables"))
+        ndims(Y0) == 3 && size(εs, 3) == size(Y0, 3) || throw(DimensionMismatch(
+            "Y0 of size $(size(Y0)) does not match εs of size $(size(εs))"))
+        t0 = size(Y0, 2)
+        copyto!(view(εs, :, 1:t0, :), Y0)
+    end
     N3 = size(εs, 3)
-    for t in length(rlag0)+1:size(εs, 2)
+    for t in t0+1:size(εs, 2)
         rlag = t-1:-1:max(t-nlag, 1)
         var(view(εs, :, t, :), _reshape(view(εs, :, rlag, :), N*length(rlag), N3))
     end
     return εs
 end
 
-function simulate!(εs::AbstractMatrix, var::VARProcess; nlag::Integer=arorder(var))
-    0 < nlag <= arorder(var) || throw(ArgumentError(
-        "nlag must be positive and no greater than $(arorder(r))"))
-    N = nvar(var)
-    size(εs, 1) == N || throw(DimensionMismatch(
-        "εs of size $(size(εs)) does not match var with $N variables"))
-    var(view(εs, :, 1))
-    for t in 2:size(εs, 2)
-        rlag = t-1:-1:max(t-nlag, 1)
-        var(view(εs, :, t), _reshape(view(εs, :, rlag), N*length(rlag)))
-    end
-    return εs
-end
-
-function simulate!(εs::AbstractArray{T,3}, var::VARProcess;
-        nlag::Integer=arorder(var)) where T
-    0 < nlag <= arorder(var) || throw(ArgumentError(
-        "nlag must be positive and no greater than $(arorder(r))"))
-    N = nvar(var)
-    size(εs, 1) == N || throw(DimensionMismatch(
-        "εs of size $(size(εs)) does not match var with $N variables"))
-    var(view(εs, :, 1, :))
-    N3 = size(εs, 3)
-    for t in 2:size(εs, 2)
-        rlag = t-1:-1:max(t-nlag, 1)
-        var(view(εs, :, t, :), _reshape(view(εs, :, rlag, :), N*length(rlag), N3))
-    end
-    return εs
-end
+simulate(εs::AbstractArray, var::VARProcess, Y0=nothing; kwargs...) =
+    simulate!(copy(εs), var, Y0; kwargs...)
 
 function impulse!(out::AbstractArray, var::VARProcess, ε0::AbstractVecOrMat;
         nlag::Integer=arorder(var))
@@ -173,9 +160,9 @@ function impulse(var::VARProcess, ε0::AbstractVecOrMat, nhorz::Integer;
     N = nvar(var)
     size(ε0, 1) == N || throw(DimensionMismatch(
         "ε0 of size $(size(ε0)) does not match var with $N variables"))
-    out = zeros(N, nhorz+1, size(ε0, 2))
+    out = zeros(N, nhorz, size(ε0, 2))
     copyto!(view(out, :, 1, :), ε0)
-    if nhorz > 0
+    if nhorz > 1
         hasintercept(var) && (var = VARProcess(var.B))
         simulate!(out, var; nlag=nlag)
     end
@@ -185,11 +172,11 @@ end
 function impulse(var::VARProcess, ishock::Union{Integer, AbstractRange}, nhorz::Integer;
         nlag::Integer=arorder(var))
     N = nvar(var)
-    out = zeros(N, nhorz+1, length(ishock))
+    out = zeros(N, nhorz, length(ishock))
     for (i, s) in enumerate(ishock)
         out[s,1,i] = 1
     end
-    if nhorz > 0
+    if nhorz > 1
         hasintercept(var) && (var = VARProcess(var.B))
         simulate!(out, var; nlag=nlag)
     end

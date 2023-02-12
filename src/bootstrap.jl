@@ -174,4 +174,3 @@ function bootstrap!(stats, r::VectorAutoregression;
     end
     return keepbootdata ? allbootdata : nothing
 end
-

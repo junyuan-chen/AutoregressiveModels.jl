@@ -273,7 +273,9 @@ function biascorrect(r::VectorAutoregression;
     B = C .+ b ./ T
     if factor === nothing
         Blast = copy(B)
-        if !_isstable!(Blast, offset)
+        if _isstable!(Blast, offset)
+            δ = 1.0
+        else
             δ = find_zero(x->_biasrelax(x, B, C, b, T, Blast, offset), x0, solver;
                 xatol=xatol, kwargs...)
         end
@@ -288,4 +290,3 @@ function biascorrect(r::VectorAutoregression;
         m.residvcov, m.residchol, m.residcholL, m.esample, m.dofr)
     return VectorAutoregression(olsc, r.names, r.lookup, !hasintercept(r)), δ
 end
-

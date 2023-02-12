@@ -45,8 +45,8 @@
     irf2 = zeros(5, 10, 5)
     impulse!(irf2, r, 1:5)
     @test irf2 ≈ irf
-    @test impulse(r, I(5), 9) ≈ irf
-    @test impulse(r, 1:5, 9) ≈ irf
+    @test impulse(r, I(5), 10) ≈ irf
+    @test impulse(r, 1:5, 10) ≈ irf
 
     # simulate uses intercept but impulse does not
     out = zeros(5, 10, 5)
@@ -74,6 +74,8 @@
     @test !hasintercept(var1)
     rc, δ = biascorrect(r1, factor=0.1)
     @test δ === nothing
+    rc, δ = biascorrect(r1, offset=-0.5)
+    @test δ == 1
 
     ns = (3, 4, 6, 11)
     r1 = fit(VARProcess, df, ns, 12, adjust_dofr=false)
@@ -84,7 +86,7 @@
         0.002297628117896  0.023797162980070 0.091140582684260 -0.005953911853670;
         -0.006135605156378 -0.011319834639549 -0.005953911853670 0.056440212782381
     ] atol = 1e-9
-    irf = impulse(r1, view(cholesky(Σ).L,:,3), 12)
+    irf = impulse(r1, view(cholesky(Σ).L,:,3), 13)
     @test irf[:,1] ≈ [0, 0, 0.298189426480482, -0.015448274525535] atol = 1e-9
     @test irf[:,13] ≈ [0.094667717478073, -0.070015879139003, 0.200478062062664,
         -0.008510989701613] atol = 1e-8
@@ -93,11 +95,11 @@
     r1 = fit(VARProcess, df, ns, 12, choleskyresid=true, adjust_dofr=false)
     impulse!(irf2, r1, 3, choleskyshock=true)
     @test irf2 ≈ irf
-    @test impulse(r1, 3, 12, choleskyshock=true) ≈ irf
+    @test impulse(r1, 3, 13, choleskyshock=true) ≈ irf
 
-    irf = impulse(r1, view(cholesky(Σ).L,:,3:-1:2), 12)
+    irf = impulse(r1, view(cholesky(Σ).L,:,3:-1:2), 13)
     irf2 = zeros(4, 13, 2)
     impulse!(irf2, r1, 3:-1:2, choleskyshock=true)
     @test irf2 ≈ irf
-    @test impulse(r1, 3:-1:2, 12, choleskyshock=true) ≈ irf
+    @test impulse(r1, 3:-1:2, 13, choleskyshock=true) ≈ irf
 end

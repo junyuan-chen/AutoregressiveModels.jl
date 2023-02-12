@@ -2,7 +2,7 @@ module AutoregressiveModels
 
 using Base: ReshapedArray
 using LinearAlgebra: Cholesky, cholesky!, cholesky, UpperTriangular, LowerTriangular,
-    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I
+    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I, dot
 using MatrixEquations: lyapd
 using Random: randn!
 using Roots: find_zero, Brent
@@ -24,6 +24,7 @@ export VARProcess,
        isstable,
        hasintercept,
        simulate!,
+       simulate,
        impulse!,
        impulse,
 
@@ -37,11 +38,15 @@ export VARProcess,
        randomindex,
        wilddraw!,
        iidresiddraw!,
-       bootstrap!
+       bootstrap!,
+
+       ARMAProcess,
+       maorder
 
 include("utils.jl")
 include("process.jl")
 include("estimation.jl")
 include("bootstrap.jl")
+include("arma.jl")
 
 end # module AutoregressiveModels

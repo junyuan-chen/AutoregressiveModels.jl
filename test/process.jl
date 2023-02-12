@@ -25,11 +25,12 @@
     @test εs[:,3] ≈ sum(B,dims=2) .+ B0 .+ 0.1
     @test εs[:,4] ≈ B * view(view(εs,:,3:-1:2),:) .+ B0 .+ 0.1
 
-    εs1 = fill(0.1, 3, 1)
+    εs1 = fill(0.1, 3, 2)
     simulate!(εs1, var1, ones(3, 2), nlag=1)
+    @test εs1 == ones(3, 2)
     εs2 = fill(0.1, 3, 1)
     simulate!(εs2, var1, ones(3))
-    @test εs1 == εs2
+    @test εs1[:,2:2] == εs2
     εs1 = fill(0.1, 3, 4)
     simulate!(εs1, var1, zeros(3, 2))
     εs2 = fill(0.1, 3, 2)
@@ -67,7 +68,7 @@
     irf2 = zeros(3, 5, 3)
     impulse!(irf2, var1, 1:3)
     @test irf2 ≈ irf
-    irf2 = impulse(var1, I(3), 4)
+    irf2 = impulse(var1, I(3), 5)
     @test irf2 ≈ irf
     irf3 = zeros(3, 5, 2)
     impulse!(irf3, var1, view(I(3),:,3:-1:2))
@@ -80,16 +81,16 @@
     impulse!(irf, var1, [0,1,0], nlag=1)
     @test irf[:,1] == [0,1,0]
     @test irf[:,5] ≈ [-0.856166672115337, 0.313653860320074, -0.010442931823260] atol = 1e-10
-    irf2 = impulse(var1, [0,1,0], 4, nlag=1)
+    irf2 = impulse(var1, [0,1,0], 5, nlag=1)
     @test irf2 ≈ irf
-    irf3 = impulse(var1, 2, 4, nlag=1)
+    irf3 = impulse(var1, 2, 5, nlag=1)
     @test irf3 ≈ irf2
 
-    irf = impulse(var1, view(I(3),:,3:-1:2), 4, nlag=1)
+    irf = impulse(var1, view(I(3),:,3:-1:2), 5, nlag=1)
     irf2 = zeros(3, 5, 2)
     impulse!(irf2, var1, view(I(3),:,3:-1:2), nlag=1)
     @test irf ≈ irf2
-    irf3 = impulse(var1, 3:-1:2, 4, nlag=1)
+    irf3 = impulse(var1, 3:-1:2, 5, nlag=1)
     @test irf3 ≈ irf
 
     B1 = [1 0; 0 0.1]
