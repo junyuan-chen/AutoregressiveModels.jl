@@ -38,7 +38,7 @@
     bootstrap!(sirf=>fillsirf!, r1, initialindex=1, drawresid=iidresiddraw!,
         correctbias=false)
     sirf2 = view(sirf, 2, :, :)
-    lb, ub, ptlevel = confint(SuptQuantileBootBand(), sirf2, level=0.68)
+    lb, ub, pwlevel = confint(SuptQuantileBootBand(), sirf2, level=0.68)
     @test lb[1] == 0
     @test lb[2] ≈ 0.035 atol = 5e-3
     @test lb[20] ≈ -0.47 atol = 5e-2

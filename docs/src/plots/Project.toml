@@ -1,0 +1,12 @@
+[deps]
+AutoregressiveModels = "c8ab78b9-851b-475e-9620-ae22bd4bbd17"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+ConfidenceBands = "6840a270-7180-4af9-9adc-8b0ddd17b6f2"
+LocalProjections = "8dd5e8af-b996-4a51-9681-92a36a2638c1"
+
+[compat]
+CSV = "0.9, 0.10"
+CairoMakie = "0.10"
+ConfidenceBands = "0.1"
+LocalProjections = "0.2"

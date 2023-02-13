@@ -3,6 +3,9 @@
     ns = (:logcpi, :logip, :ff, :ebp, :ff4_tc)
     r = fit(VARProcess, df, ns, 12)
     @test nvar(r) == 5
+    @test arorder(r) == 12
+    @test maorder(r) == 0
+    @test hasintercept(r)
     ols = r.est
     @test size(modelmatrix(ols)) == (258, 61)
     @test size(coef(ols)) == (61, 5)
@@ -14,6 +17,14 @@
     @test size(residvcov(ols)) == (5, 5)
     @test residchol(ols) === nothing
     @test sprint(show, ols) == "OLS regression (258, 5)"
+
+    if VERSION >= v"1.6"
+        @test sprint(show, r) ==
+            "5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true}"
+        @test sprint(show, MIME("text/plain"), r)[1:125] == """
+            5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true} with coefficient matrix:
+              0.19390"""
+    end
 
     @test coef(r) == coef(ols)
     @test coef(r, 2, 2) == coef(ols)[3,2]
@@ -56,6 +67,8 @@
     foreach(i->out2[i,1,i]=1, 1:5)
     simulate!(out2, r)
     @test out2[:,1,:] ≈ out[:,1,:] .+ r.est.intercept
+    out3 = simulate(zeros(5, 10, 5), r, reshape(I(5),5,1,5))
+    @test out3 ≈ out
 
     rc, δ = biascorrect(r, factor=0.1)
     @test δ == 0.1

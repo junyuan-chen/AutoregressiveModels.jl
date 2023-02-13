@@ -15,3 +15,12 @@ function _esample!(esample::AbstractVector{Bool}, aux::AbstractVector{Bool},
     aux .= isequal.(isfinite.(v), true)
     esample .&= aux
 end
+
+# Inner product with a subset of Y ordered backward
+function bdot(X::Tuple, Y::AbstractVector, t::Int, N::Int)
+    out = 0.0
+    for i in 1:N
+        out += X[i] * Y[t-i]
+    end
+    return out
+end

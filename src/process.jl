@@ -1,3 +1,16 @@
+"""
+    VARProcess(B::AbstractMatrix, B0=nothing; copy::Bool=false)
+
+Return a vector autoregressive process ``Y_t`` defined as
+
+```math
+Y_t = B_0 + \\sum_{l=1}^p B_l Y_{t-l} + \\ε_t
+```
+
+where the autoregressive coefficients ``\\{\\B_l\\}_l``
+are collected in matrix `B` by column
+and the optional intercept ``B_0`` is in a vector `B0`.
+"""
 struct VARProcess{TB<:AbstractMatrix, TI<:Union{AbstractVector,Nothing}}
     B::TB
     B0::TI
@@ -24,8 +37,14 @@ end
 
 nvar(var::VARProcess) = size(var.B, 1)
 arorder(var::VARProcess) = size(var.B, 2) ÷ size(var.B, 1)
+maorder(var::VARProcess) = 0
 hasintercept(::VARProcess{TB,TI}) where {TB,TI} = TI !== Nothing
 
+"""
+    companionform(var::VARProcess)
+
+Return a coefficient matrix representing the companion form of `var`.
+"""
 function companionform(var::VARProcess)
     B = var.B
     N, NP = size(B)
@@ -34,6 +53,12 @@ function companionform(var::VARProcess)
     return C
 end
 
+"""
+    isstable(var::VARProcess, offset::Real=0)
+
+Return a Boolean value indicating whether `var` is stable,
+optionally with the comparison adjusted by `offset` for some tolerance.
+"""
 isstable(var::VARProcess, offset::Real=0) =
     abs(eigen!(companionform(var), sortby=abs).values[end]) < 1 - offset
 
@@ -57,6 +82,17 @@ end
 (var::VARProcess)(ε::AbstractVecOrMat) = (ε .+= var.B0)
 (var::VARProcess{TB, Nothing} where {TB<:AbstractMatrix})(ε::AbstractVecOrMat) = ε
 
+"""
+    simulate!(εs::AbstractArray, var::VARProcess, Y0=nothing; kwargs...)
+
+Simulate the `var` process using the shocks specified in `εs` and initial values `Y0`.
+Results are stored by overwriting `εs` in-place.
+If `Y0` is `nothing` or does not contain enough lags, zeros are used.
+See also [`simulate`](@ref) and [`impulse!`](@ref).
+
+# Keywords
+- `nlag::Integer=arorder(var)`: the number of lags from `var` used for simulations.
+"""
 function simulate!(εs::AbstractMatrix, var::VARProcess,
         Y0::Union{AbstractVecOrMat,Nothing}=nothing; nlag::Integer=arorder(var))
     Base.require_one_based_indexing(εs)
@@ -110,9 +146,33 @@ function simulate!(εs::AbstractArray{T,3}, var::VARProcess,
     return εs
 end
 
+"""
+    simulate(εs::AbstractArray, var::VARProcess, Y0=nothing; nlag::Integer=arorder(var))
+
+Same as [`simulate!`](@ref), but makes a copy of `εs` for results
+and hence does not overwrite `εs`.
+"""
 simulate(εs::AbstractArray, var::VARProcess, Y0=nothing; kwargs...) =
     simulate!(copy(εs), var, Y0; kwargs...)
 
+"""
+    impulse!(out, var::VARProcess, ε0::AbstractVecOrMat; kwargs...)
+    impulse!(out, var::VARProcess, ishock::Union{Integer, AbstractRange}; kwargs...)
+
+Compute the responses of the `var` process to the impulse
+specified with `ε0` or `ishock` and store the results in an array `out`.
+The number of horizons to be computed is determined by the second dimension of `out`.
+See also [`impulse`](@ref) and [`simulate!`](@ref).
+
+As a vector, `ε0` specifies the magnitude of the impulse to each variable;
+columns in a matrix are interpreted as multiple impulses with results
+stored separately along the third dimension of array `out`.
+Alternatively, `ishock` specifies the index of a single variable that is affected on impact;
+a range of indices is intercepted as multiple impulses.
+
+# Keywords
+- `nlag::Integer=arorder(var)`: the number of lags from `var` used for simulations.
+"""
 function impulse!(out::AbstractArray, var::VARProcess, ε0::AbstractVecOrMat;
         nlag::Integer=arorder(var))
     size(ε0, 1) == size(out, 1) && size(ε0, 2) == size(out, 3) || throw(DimensionMismatch(
@@ -155,6 +215,16 @@ function impulse!(out::AbstractArray, var::VARProcess, ishock::Union{Integer, Ab
     return out
 end
 
+const _impulse_common_docstr = """
+    Same as [`impulse!`](@ref), but allocates an array for storing the results.
+    The number of horizons needs to be specified explicitely."""
+
+"""
+    impulse(var::VARProcess, ε0::AbstractVecOrMat, nhorz::Integer; kwargs...)
+    impulse(var::VARProcess, ishock::Union{Integer, AbstractRange}, nhorz::Integer; kwargs...)
+
+$_impulse_common_docstr
+"""
 function impulse(var::VARProcess, ε0::AbstractVecOrMat, nhorz::Integer;
         nlag::Integer=arorder(var))
     N = nvar(var)
@@ -181,4 +251,12 @@ function impulse(var::VARProcess, ishock::Union{Integer, AbstractRange}, nhorz::
         simulate!(out, var; nlag=nlag)
     end
     return out
+end
+
+show(io::IO, var::VARProcess) =
+    print(io, size(var.B,1), '×', size(var.B,2), " ", typeof(var))
+
+function show(io::IO, ::MIME"text/plain", var::VARProcess)
+    println(io, var, " with coefficient matrix:")
+    Base.print_array(io, var.B)
 end

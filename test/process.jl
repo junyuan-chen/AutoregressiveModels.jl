@@ -13,6 +13,15 @@
     @test isstable(var1)
     @test !isstable(var1, 0.5)
 
+    if VERSION >= v"1.6"
+        @test sprint(show, var1) == "3×6 VARProcess{Matrix{Float64}, Vector{Float64}}"
+        @test sprint(show, MIME("text/plain"), var1) == """
+            3×6 VARProcess{Matrix{Float64}, Vector{Float64}} with coefficient matrix:
+              1.003532758367871  -0.314370089912221   1.662878301208329  -0.008227769152681  -0.200502990878739  -0.320479368332797
+             -0.076183071753115   0.682326947353711  -0.129459582384621   0.077372099814356   0.199130255799557  -0.082127775860029
+              0.0057789273751    -0.008683217084575   0.290444453858049  -0.005184505682256  -0.004531906575996  -0.172695800820669"""
+    end
+
     εs = fill(0.1, 3)
     var1(εs)
     @test εs == B0 .+ 0.1
@@ -28,6 +37,7 @@
     εs1 = fill(0.1, 3, 2)
     simulate!(εs1, var1, ones(3, 2), nlag=1)
     @test εs1 == ones(3, 2)
+    @test simulate(fill(0.1, 3, 2), var1, ones(3, 2), nlag=1) ≈ εs1
     εs2 = fill(0.1, 3, 1)
     simulate!(εs2, var1, ones(3))
     @test εs1[:,2:2] == εs2
@@ -38,6 +48,7 @@
     εs1 = fill(0.1, 3, 4, 2)
     simulate!(εs1, var1, zeros(3, 2, 2))
     @test εs1[:,:,1] ≈ εs1[:,:,2]
+    @test simulate(fill(0.1, 3, 4, 2), var1, zeros(3, 2, 2)) ≈ εs1
     εs2 = fill(0.1, 3, 2, 2)
     @test simulate!(εs2, var1) ≈ εs1[:,3:4,:]
     εs1 = fill(0.1, 3, 4, 2)
@@ -93,10 +104,14 @@
     irf3 = impulse(var1, 3:-1:2, 5, nlag=1)
     @test irf3 ≈ irf
 
+    @test_throws ArgumentError impulse!(zeros(3), var1, [0,1,0])
+    @test_throws ArgumentError impulse!(zeros(3), var1, 1)
+
     B1 = [1 0; 0 0.1]
     var2 = VARProcess(B1)
     @test nvar(var2) == 2
     @test arorder(var2) == 1
+    @test maorder(var2) == 0
     @test !hasintercept(var2)
     C2 = companionform(var2)
     @test C2[1:2,:] == B1

@@ -12,14 +12,15 @@ using Tables
 using Tables: getcolumn
 
 import Base: show
-import StatsAPI: coef, vcov, confint, coeftable, modelmatrix, residuals, dof_residual, fit
+import StatsAPI: coef, modelmatrix, residuals, dof_residual, fit
 
 # Reexport objects from StatsAPI
-export coef, stderror, confint, coeftable, modelmatrix, residuals, dof_residual, fit
+export coef, modelmatrix, residuals, dof_residual, fit
 
 export VARProcess,
        nvar,
        arorder,
+       maorder,
        companionform,
        isstable,
        hasintercept,
@@ -40,8 +41,7 @@ export VARProcess,
        iidresiddraw!,
        bootstrap!,
 
-       ARMAProcess,
-       maorder
+       ARMAProcess
 
 include("utils.jl")
 include("process.jl")
