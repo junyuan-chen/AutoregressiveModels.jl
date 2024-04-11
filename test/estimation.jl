@@ -7,6 +7,7 @@
     @test maorder(r) == 0
     @test hasintercept(r)
     ols = r.est
+    @test size(response(ols)) == (258, 5)
     @test size(modelmatrix(ols)) == (258, 61)
     @test size(coef(ols)) == (61, 5)
     @test size(residuals(ols)) == (258, 5)
@@ -26,10 +27,12 @@
               0.19390"""
     end
 
+    @test size(response(r)) == (258, 5)
     @test coef(r) == coef(ols)
     @test coef(r, 2, 2) == coef(ols)[3,2]
     @test coef(r, :ff, :logcpi, 3) == coef(ols)[12,3]
     @test coef(r, 2, :constant) == coef(ols)[1,2]
+    @test intercept(r) == coef(r)[1,:]
     @test residvcov(r) == residvcov(ols)
     @test residvcov(r, 1) == residvcov(ols)[1]
     @test residvcov(r, :logip, 3) == residvcov(ols)[2,3]
@@ -115,4 +118,12 @@
     impulse!(irf2, r1, 3:-1:2, choleskyshock=true)
     @test irf2 ≈ irf
     @test impulse(r1, 3:-1:2, 13, choleskyshock=true) ≈ irf
+
+    sirf = impulse(r1, 1:4, 13, choleskyshock=true)
+    fev = forecastvar(sirf)
+    @test fev ≈ cumsum(sirf.^2, dims=2)
+
+    shocks = residuals(r1) / residchol(r1)'
+    hv = histvar(sirf, shocks)
+    @test sum(view(hv,:,1,:)) ≈ sum(residuals(r1)[1,:])
 end

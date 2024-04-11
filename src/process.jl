@@ -217,7 +217,7 @@ end
 
 const _impulse_common_docstr = """
     Same as [`impulse!`](@ref), but allocates an array for storing the results.
-    The number of horizons needs to be specified explicitely."""
+    The number of horizons needs to be specified explicitly with `nhorz`."""
 
 """
     impulse(var::VARProcess, ε0::AbstractVecOrMat, nhorz::Integer; kwargs...)
@@ -251,6 +251,78 @@ function impulse(var::VARProcess, ishock::Union{Integer, AbstractRange}, nhorz::
         simulate!(out, var; nlag=nlag)
     end
     return out
+end
+
+"""
+    forecastvar!(out::AbstractArray{T,3}, irfs::AbstractArray{T,3})
+
+Compute the variance of forecast error over each horizon
+given orthogonalized impulse response coefficients specified with `irfs`
+and store the results in an array `out`.
+The number of horizons computed is determined by the second dimension of `irfs`
+and `out` should have the same size as `irfs`.
+See also [`forecastvar`](@ref).
+"""
+function forecastvar!(out::AbstractArray{T,3}, irfs::AbstractArray{T,3}) where T
+    size(out) == size(irfs) ||
+        throw(DimensionMismatch("out and irfs do not have the same size"))
+    out .= irfs.^2
+    # cumsum! allocates and is slower
+    t2 = first(axes(out, 2)) + 1
+    @inbounds for s in axes(out, 3)
+        for t in t2:last(axes(out, 2))
+            for i in axes(out, 1)
+                out[i,t,s] += out[i,t-1,s]
+            end
+        end
+    end
+    return out
+end
+
+"""
+    forecastvar(irfs::AbstractArray)
+
+Same as [`forecastvar!`](@ref), but allocates an array for storing the results.
+"""
+forecastvar(irfs::AbstractArray) = forecastvar!(similar(irfs), irfs)
+
+"""
+    histvar!(out::AbstractArray{TF,3}, irfs::AbstractArray{TF,3}, shocks::AbstractMatrix)
+
+Compute the variance to be used for historical decomposition
+given impulse response coefficients specified with `irfs` and historical `shocks`.
+Results are stored in an array `out`.
+See also [`histvar`](@ref).
+"""
+function histvar!(out::AbstractArray{TF,3}, irfs::AbstractArray{TF,3},
+        shocks::AbstractMatrix) where TF
+    N, T, S = size(out)
+    N1, nhorz, S1 = size(irfs)
+    T2, S2 = size(shocks)
+    N == N1 || throw(DimensionMismatch("the first dimension of out is expected to be $N1"))
+    T == T2 || throw(DimensionMismatch("the second dimension of out is expected to be $T2"))
+    S1 == S2 || throw(DimensionMismatch(
+        "the numbers of shocks in irfs and shocks do not match"))
+    S == S1 || throw(DimensionMismatch("the thrid dimension of out is expected to be $S"))
+    for s in 1:S
+        for t in 1:T
+            hs = 1:min(nhorz, t)
+            bs = t:-1:max(t-nhorz+1, 1)
+            mul!(view(out,:,t,s), view(irfs,:,hs,s), view(shocks,bs,s))
+        end
+    end
+    return out
+end
+
+"""
+    histvar(irfs::AbstractArray, shocks::AbstractMatrix)
+
+Same as [`histvar!`](@ref), but allocates an array for storing the results.
+"""
+function histvar(irfs::AbstractArray, shocks::AbstractMatrix)
+    T, S = size(shocks)
+    out = similar(irfs, (size(irfs,1), T, S))
+    return histvar!(out, irfs, shocks)
 end
 
 show(io::IO, var::VARProcess) =
