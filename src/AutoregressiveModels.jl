@@ -2,20 +2,20 @@ module AutoregressiveModels
 
 using Base: ReshapedArray
 using LinearAlgebra: Cholesky, cholesky!, cholesky, UpperTriangular, LowerTriangular,
-    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I, dot
+    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I
 using MatrixEquations: lyapd
 using Random: randn!
 using Roots: find_zero, Brent
-using StatsAPI: StatisticalModel, RegressionModel
+using StatsAPI: RegressionModel
 using StatsBase: sample
 using Tables
 using Tables: getcolumn
 
 import Base: show
-import StatsAPI: coef, modelmatrix, residuals, dof_residual, fit
+import StatsAPI: response, modelmatrix, coef, residuals, dof_residual, fit
 
 # Reexport objects from StatsAPI
-export coef, modelmatrix, residuals, dof_residual, fit
+export response, modelmatrix, coef, residuals, dof_residual, fit
 
 export VARProcess,
        nvar,
@@ -28,8 +28,13 @@ export VARProcess,
        simulate,
        impulse!,
        impulse,
+       forecastvar!,
+       forecastvar,
+       histvar!,
+       histvar,
 
        OLS,
+       intercept,
        coefcorrected,
        residvcov,
        residchol,

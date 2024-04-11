@@ -39,6 +39,7 @@ end
 # An unsafe version for bootstrap
 function _fitvar!(data::Matrix, m::OLS, nlag, nocons)
     i0 = nocons ? 0 : 1
+    # Y in OLS is left untouched but use resid in-place
     Y = residuals(m)
     X = modelmatrix(m)
     N = size(Y, 2)
