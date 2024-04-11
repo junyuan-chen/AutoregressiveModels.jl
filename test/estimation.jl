@@ -27,10 +27,12 @@
               0.19390"""
     end
 
+    @test size(response(r)) == (258, 5)
     @test coef(r) == coef(ols)
     @test coef(r, 2, 2) == coef(ols)[3,2]
     @test coef(r, :ff, :logcpi, 3) == coef(ols)[12,3]
     @test coef(r, 2, :constant) == coef(ols)[1,2]
+    @test intercept(r) == coef(r)[1,:]
     @test residvcov(r) == residvcov(ols)
     @test residvcov(r, 1) == residvcov(ols)[1]
     @test residvcov(r, :logip, 3) == residvcov(ols)[2,3]
