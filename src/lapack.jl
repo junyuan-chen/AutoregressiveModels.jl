@@ -1,4 +1,5 @@
 # Define customized in-placed methods of SVD that are non-allocating
+# Use liblapack instead of libblastrampoline for compatibility with Julia v1.6
 
 struct SDDcache{TF<:Union{Float64, Float32}}
     U::Matrix{TF}
@@ -78,7 +79,7 @@ for (gesdd, gesvd, elty) in
             m, n = size(A)
             lwork = BlasInt(-1)
             for i in 1:2  # first call returns lwork as work[1]
-                ccall((@blasfunc($gesdd), libblastrampoline), Cvoid,
+                ccall((@blasfunc($gesdd), liblapack), Cvoid,
                     (Ref{UInt8}, Ref{BlasInt}, Ref{BlasInt}, Ptr{$elty},
                      Ref{BlasInt}, Ptr{$elty}, Ptr{$elty}, Ref{BlasInt},
                      Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt},
@@ -100,10 +101,11 @@ for (gesdd, gesvd, elty) in
         function gesvd!(ca::SVDcache{$elty}, A::AbstractMatrix{$elty})
             Base.require_one_based_indexing(A)
             chkstride1(A)
+            _checkcache(ca, A)
             m, n = size(A)
             lwork = BlasInt(-1)
             for i in 1:2  # first call returns lwork as work[1]
-                ccall((@blasfunc($gesvd), libblastrampoline), Cvoid,
+                ccall((@blasfunc($gesvd), liblapack), Cvoid,
                     (Ref{UInt8}, Ref{UInt8}, Ref{BlasInt}, Ref{BlasInt},
                      Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ptr{$elty},
                      Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt}, Ptr{$elty},

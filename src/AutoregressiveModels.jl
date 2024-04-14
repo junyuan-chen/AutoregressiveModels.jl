@@ -3,7 +3,7 @@ module AutoregressiveModels
 using Base: ReshapedArray
 using LinearAlgebra: Cholesky, cholesky!, cholesky, UpperTriangular, LowerTriangular,
     lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I,
-    BLAS.@blasfunc, BlasInt, chkstride1, libblastrampoline, LAPACK.chklapackerror,
+    BLAS.@blasfunc, BlasInt, chkstride1, LAPACK.liblapack, LAPACK.chklapackerror,
     Algorithm, default_svd_alg, DivideAndConquer, QRIteration
 using MatrixEquations: lyapd
 using Random: randn!

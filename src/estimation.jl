@@ -405,5 +405,7 @@ show(io::IO, r::VectorAutoregression) =
 
 function show(io::IO, ::MIME"text/plain", r::VectorAutoregression)
     println(io, r, " with coefficient matrix:")
-    Base.print_array(io, coef(r)')
+    M, N = displaysize(io)
+    Base.print_matrix(IOContext(io, :compact=>true, :limit=>true,
+        :displaysize=>(M-1, N)), coef(r)')
 end

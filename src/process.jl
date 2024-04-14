@@ -330,5 +330,7 @@ show(io::IO, var::VARProcess) =
 
 function show(io::IO, ::MIME"text/plain", var::VARProcess)
     println(io, var, " with coefficient matrix:")
-    Base.print_array(io, var.B)
+    M, N = displaysize(io)
+    Base.print_matrix(IOContext(io, :compact=>true, :limit=>true,
+        :displaysize=>(M-1, N)), var.B)
 end

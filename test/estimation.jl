@@ -19,13 +19,11 @@
     @test residchol(ols) === nothing
     @test sprint(show, ols) == "OLS regression (258, 5)"
 
-    if VERSION >= v"1.6"
-        @test sprint(show, r) ==
-            "5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true}"
-        @test sprint(show, MIME("text/plain"), r)[1:125] == """
-            5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true} with coefficient matrix:
-              0.19390"""
-    end
+    @test sprint(show, r) ==
+        "5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true}"
+    @test sprint(show, MIME("text/plain"), r)[1:140] == """
+        5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true} with coefficient matrix:
+          0.193904   1.40075    """
 
     @test size(response(r)) == (258, 5)
     @test coef(r) == coef(ols)
