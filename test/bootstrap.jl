@@ -1,5 +1,5 @@
 @testset "bootstrap VAR" begin
-    df = exampledata(:gk)
+    df = lpexampledata(:gk)
     ns = (:logcpi, :logip, :ff, :ebp, :ff4_tc)
     r = fit(VARProcess, df, ns, 12)
     stat1 = zeros(1, 2)

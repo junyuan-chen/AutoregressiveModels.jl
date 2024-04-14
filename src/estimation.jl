@@ -350,9 +350,9 @@ The corrected estimates can be retrieved from the returned object
 with [`coefcorrected`](@ref).
 
 # Reference
-**Pope, Alun L. 1990**.
-"Biases of Estimators in Multivariate Non-Gaussian Autoregressions".
-*Journal of Time Series Analysis* 11 (3): 249-258.
+**Pope, Alun L.** 1990.
+"Biases of Estimators in Multivariate Non-Gaussian Autoregressions."
+*Journal of Time Series Analysis* 11 (3): 249--258.
 """
 function biascorrect(r::VectorAutoregression;
         offset::Real=1e-4, factor::Union{Real, Nothing}=nothing,
@@ -405,5 +405,7 @@ show(io::IO, r::VectorAutoregression) =
 
 function show(io::IO, ::MIME"text/plain", r::VectorAutoregression)
     println(io, r, " with coefficient matrix:")
-    Base.print_array(io, coef(r)')
+    M, N = displaysize(io)
+    Base.print_matrix(IOContext(io, :compact=>true, :limit=>true,
+        :displaysize=>(M-1, N)), coef(r)')
 end

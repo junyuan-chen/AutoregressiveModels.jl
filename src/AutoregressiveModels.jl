@@ -2,7 +2,9 @@ module AutoregressiveModels
 
 using Base: ReshapedArray
 using LinearAlgebra: Cholesky, cholesky!, cholesky, UpperTriangular, LowerTriangular,
-    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I
+    lu!, ldiv!, rdiv!, inv!, mul!, diagm, eigen!, eigen, I,
+    BLAS.@blasfunc, BlasInt, chkstride1, LAPACK.liblapack, LAPACK.chklapackerror,
+    Algorithm, default_svd_alg, DivideAndConquer, QRIteration
 using MatrixEquations: lyapd
 using Random: randn!
 using Roots: find_zero, Brent
@@ -12,10 +14,11 @@ using Tables
 using Tables: getcolumn
 
 import Base: show
-import StatsAPI: response, modelmatrix, coef, residuals, dof_residual, fit
+import LinearAlgebra: LAPACK.gesdd!, LAPACK.gesvd!, _svd!
+import StatsAPI: response, modelmatrix, coef, residuals, dof_residual, fit, fit!, r2
 
 # Reexport objects from StatsAPI
-export response, modelmatrix, coef, residuals, dof_residual, fit
+export response, modelmatrix, coef, residuals, dof_residual, fit, fit!, r2
 
 export VARProcess,
        nvar,
@@ -46,12 +49,16 @@ export VARProcess,
        iidresiddraw!,
        bootstrap!,
 
-       ARMAProcess
+       ARMAProcess,
 
+       Factor
+
+include("lapack.jl")
 include("utils.jl")
 include("process.jl")
 include("estimation.jl")
 include("bootstrap.jl")
 include("arma.jl")
+include("factor.jl")
 
 end # module AutoregressiveModels
