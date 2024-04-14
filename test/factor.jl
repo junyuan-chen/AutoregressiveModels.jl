@@ -40,6 +40,7 @@
     @test f11.fac ≈ f1.fac
     @test f11.Λ ≈ f1.Λ
     @test sprint(show, f11) == "222×3 Factor{Float64, SVDcache{Float64}}"
+    if VERSION >= v"1.7"
     @test sprint(show, MIME("text/plain"), f11, context=:displaysize=>(14,120)) == """
         222×3 Factor{Float64, SVDcache{Float64}} with 3 unobserved factors and 0 observed factor:
           -0.66975    1.41504   0.279535
@@ -52,6 +53,7 @@
           -0.154628   0.0189407  -0.138591   0.182793   0.105312  -0.44612   -0.00113047   -1.69095
          R-squared by column:
           0.547498  0.538207  0.522485  0.845287  0.776754  0.442969  0.718135  0.911623"""
+    end # VERSION
 
     f = fit(Factor, tb, 1:8, [], 3, subset=(1:224).>2)
     @test f.fac ≈ f1.fac
@@ -87,6 +89,7 @@
     @test f.fac ≈ f2.fac
     @test f.Λ ≈ f2.Λ
 
+    if VERSION >= v"1.7"
     w = data[3:end,1:1]
     f3 = Factor(xbal, w, 4, es)
     @test f3.fac[:,1:1] == w
@@ -141,4 +144,5 @@
          0.000008934939656   0.000249402661984   0.003066623290719   0.001129092425029;
         -0.017134344601979  -0.125481814960387  -0.219249527953531   1.693601876644949
         ]) atol=1e-10
+    end # VERSION
 end

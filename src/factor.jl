@@ -99,6 +99,7 @@ function _factor!(Y, Ystd, Ysd, Yca, fac, crossfac, Λ, crossΛu, svdca, nfo, re
             mul!(crossΛu, Λu, Λu')
             facu = view(fac,:,rfu)
             mul!(facu, Yu, Λu')
+            # No such a method on Julia v1.6
             ldiv!(cholesky!(crossΛu), facu')
             copyto!(resid, Ystd)
             resid = mul!(resid, fac, Λ, -1.0, 1.0)
