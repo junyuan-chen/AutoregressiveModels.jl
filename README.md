@@ -6,8 +6,8 @@
 [![codecov][codecov-img]][codecov-url]
 [![PkgEval][pkgeval-img]][pkgeval-url]
 
-[CI-stable-img]: https://github.com/junyuan-chen/AutoregressiveModels.jl/workflows/CI-stable/badge.svg
-[CI-stable-url]: https://github.com/junyuan-chen/AutoregressiveModels.jl/actions?query=workflow%3ACI-stable
+[CI-stable-img]: https://github.com/junyuan-chen/AutoregressiveModels.jl/actions/workflows/CI-stable.yml/badge.svg?branch=main
+[CI-stable-url]: https://github.com/junyuan-chen/AutoregressiveModels.jl/actions/workflows/CI-stable.yml
 
 [codecov-img]: https://codecov.io/gh/junyuan-chen/AutoregressiveModels.jl/branch/main/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/junyuan-chen/AutoregressiveModels.jl
@@ -21,7 +21,9 @@ Performance and reusability is prioritized over comprehensive coverage of functi
 as a main goal of the package is to provide support
 for other packages with more specialized purposes.
 At this moment, the main focus is on vector autoregressions (VAR).
-Some basic support for the autoregressive-moving-average (ARMA) model is also included.
+Estimation of factor models is implemented for balanced panel data
+following Stock and Watson (2016).
+Some basic support for the autoregressive-moving-average (ARMA) models is also included.
 
 ## Example Usage
 
@@ -93,3 +95,8 @@ Here is a plot for the results with the complete script located
 **Montiel Olea, José Luis and Mikkel Plagborg-Møller.** 2019.
 "Simultaneous Confidence Bands: Theory, Implementation, and an Application to SVARs."
 *Journal of Applied Econometrics* 34 (1): 1-17.
+
+**Stock, James H. and Mark W. Watson.** 2016.
+"Chapter 8---Dynamic Factor Models, Factor-Augmented Vector Autoregressions, and Structural Vector Autoregressions in Macroeconomics."
+In *Handbook of Macroeconomics*, Vol. 2A,
+edited by John B. Taylor and Harald Uhlig, 415-525. Amsterdam: Elsevier.
