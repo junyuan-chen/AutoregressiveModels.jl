@@ -24,3 +24,5 @@ function bdot(X::Tuple, Y::AbstractVector, t::Int, N::Int)
     end
     return out
 end
+
+datafile(name::Union{Symbol,String}) = (@__DIR__)*"/../data/$(name)"

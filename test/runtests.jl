@@ -1,20 +1,23 @@
 using Test
 using AutoregressiveModels
 
-using AutoregressiveModels: coefB, intercept
+using AutoregressiveModels: SDDcache, SVDcache, svdcache, datafile, coefB, intercept
 using CSV
 using ConfidenceBands
 using DataFrames
-using LinearAlgebra: diagm, I, cholesky
-using LocalProjections: datafile
+using LinearAlgebra: diagm, I, cholesky, _svd!, DivideAndConquer, QRIteration
+using LocalProjections: datafile as lpdatafile
+using MAT
 
-exampledata(name) = CSV.read(datafile(name), DataFrame)
+lpexampledata(name) = CSV.read(lpdatafile(name), DataFrame)
 
 const tests = [
+    "lapack",
     "process",
     "estimation",
     "bootstrap",
-    "arma"
+    "arma",
+    "factor"
 ]
 
 printstyled("Running tests:\n", color=:blue, bold=true)
