@@ -14,16 +14,17 @@
     @test dof_residual(ols) == 197
     @test coefB(ols) == coef(ols)'[:,2:61]
     @test intercept(ols) == coef(ols)[1,:]
+    @test hasintercept(ols)
     @test coefcorrected(ols) === nothing
     @test size(residvcov(ols)) == (5, 5)
     @test residchol(ols) === nothing
-    @test sprint(show, ols) == "OLS regression (258, 5)"
+    @test sprint(show, ols) == "258×61 OLS regression for VAR with 5 variables and 12 lags"
 
     @test sprint(show, r) ==
-        "5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true}"
+        "5×61 VectorAutoregression{VAROLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true}"
     @test sprint(show, MIME("text/plain"), r)[1:140] == """
-        5×61 VectorAutoregression{OLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true} with coefficient matrix:
-          0.193904   1.40075    """
+        5×61 VectorAutoregression{VAROLS{Float64, Vector{Float64}, Nothing, Nothing, Nothing}, true} with coefficient matrix:
+          0.193904   1.40075 """
 
     @test size(response(r)) == (258, 5)
     @test coef(r) == coef(ols)
@@ -40,6 +41,23 @@
     @test residchol(ols)[:,1] ≈ [0.21584923287938163, -0.05256125647882381,
         0.011050085434558338, -0.0011899788668380145, 0.0012876023706559461] atol = 1e-8
     @test residchol(ols)[:,5] ≈ [0, 0, 0, 0, 0.037257866506556804] atol = 1e-8
+
+    # esample does not cover the beginning rows dropped for lags
+    irows = vcat(139-12:138, (13:size(df,1))[r.est.esample])
+    data = hcat((df[irows,n] for n in ns)...)
+    r1 = fit(VARProcess, data, 12, choleskyresid=true)
+    @test coef(r1) ≈ coef(r)
+    @test residchol(r1) ≈ residchol(r)
+
+    fill!(response(r1), 0)
+    # Do not overwrite the column for constant term
+    fill!(view(modelmatrix(r1),:,2:10), 0)
+    fit!(r1, data; Yinresid=true)
+    @test coef(r1) ≈ coef(r)
+    @test residuals(r1) ≈ residuals(r)
+    @test all(==(0), response(r1))
+    fit!(r1, data)
+    @test response(r1) == response(r)
 
     var = VARProcess(r)
     # Compare results with Matlab (QR vs Cholesky)

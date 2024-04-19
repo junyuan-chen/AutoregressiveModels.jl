@@ -25,4 +25,12 @@ function bdot(X::Tuple, Y::AbstractVector, t::Int, N::Int)
     return out
 end
 
+function _ols!(Y, X, crossX, coef, resid)
+    mul!(coef, X', Y)
+    mul!(crossX, X', X)
+    ldiv!(cholesky!(crossX), coef)
+    copyto!(resid, Y)
+    mul!(resid, X, coef, -1.0, 1.0)
+end
+
 datafile(name::Union{Symbol,String}) = (@__DIR__)*"/../data/$(name)"

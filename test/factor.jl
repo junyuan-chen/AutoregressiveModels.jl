@@ -1,10 +1,12 @@
-@testset "factor" begin
-    data = matread(datafile("lpw_est_data.mat"))["est_data"]
+@testset "Factor" begin
+    datalev = matread(datafile("lpw_data.mat"))["dataout"]
+    data = diff(datalev, dims=1)
     tb = Tables.table(data)
-    xbal = data[3:end,1:8]
-    es = trues(size(xbal,1))
+    ibal = all(!isnan, data[2:end,:], dims=1)[:]
+    ibal = (1:length(ibal))[ibal]
+    xbal = data[2:end,1:8]
     # Only unobserved factors
-    f1 = Factor(xbal, 3, es)
+    f1 = Factor(xbal, 3)
     @test f1.svdca isa SDDcache
     @test response(f1) === f1.Y
     @test modelmatrix(f1) === f1.fac
@@ -35,7 +37,7 @@
         0.845287219432025, 0.776753874267359, 0.442968927667726,
         0.718135497358341, 0.911622832625205] atol=1e-10
 
-    f11 = Factor(xbal, nothing, 3, es, svdalg=QRIteration())
+    f11 = Factor(xbal, nothing, 3, svdalg=QRIteration())
     @test f11.svdca isa SVDcache
     @test f11.fac ≈ f1.fac
     @test f11.Λ ≈ f1.Λ
@@ -55,15 +57,30 @@
           0.547498  0.538207  0.522485  0.845287  0.776754  0.442969  0.718135  0.911623"""
     end # VERSION
 
-    f = fit(Factor, tb, 1:8, [], 3, subset=(1:224).>2)
+    f = fit(Factor, tb, 1:8, [], 3, subset=(1:223).>1)
     @test f.fac ≈ f1.fac
     @test f.Λ ≈ f1.Λ
-    f = fit(Factor, tb, 1:8, nothing, 3, subset=(1:224).>2)
+    f = fit(Factor, tb, 1:8, nothing, 3, subset=(1:223).>1)
+    @test f.fac ≈ f1.fac
+    df = DataFrame(tb)
+    # Make sure subset=nothing works
+    f = fit(Factor, df[(1:223).>1,:], 1:8, nothing, 3)
     @test f.fac ≈ f1.fac
 
+    f12 = fit(Factor, tb, 1:8, nothing, BaiNg(3), subset=(1:223).>1)
+    @test size(f12.fac, 2) == 3
+    @test f12.fac ≈ f.fac
+    @test f12.Λ ≈ f.Λ
+
+    fh = fit(Factor, tb, ibal, nothing, BaiNg(30), subset=(1:223).>1)
+    @test size(fh.fac, 2) == 3
+    S = fh.svdca.S
+    @test criterion(BaiNg(30), 3, sum(abs2,S[1:3])/sum(abs2, S), length(ibal), 222) ≈
+        -0.23011244490454102 atol=1e-10
+
     # Only observed factors
-    w = data[3:end,1:2]
-    f2 = Factor(xbal, w, 2, es)
+    w = data[2:end,1:2]
+    f2 = Factor(xbal, w, 2)
     @test f2.fac == w
     @test f2.Λ' ≈ [1.008190053248771  -1.202238634380183;
         0.005237739852161   0.231138917436696;
@@ -85,13 +102,13 @@
           ⋮      ⋱  
          R-squared by column:
           0.955139  0.240704  0.132871  0.224902  0.146393  0.205313  0.0033828  0.00208684"""
-    f = fit(Factor, tb, 1:8, 1:2, 2, subset=(1:224).>2)
+    f = fit(Factor, tb, 1:8, 1:2, 2, subset=(1:223).>1)
     @test f.fac ≈ f2.fac
     @test f.Λ ≈ f2.Λ
 
     if VERSION >= v"1.7"
-    w = data[3:end,1:1]
-    f3 = Factor(xbal, w, 4, es)
+    w = data[2:end,1:1]
+    f3 = Factor(xbal, w, 4)
     @test f3.fac[:,1:1] == w
     @test abs.(f3.fac[1,2:end]) ≈
         abs.([0.867830419938244, -1.543465356847842, -0.229706167547361]) atol=1e-10
@@ -126,7 +143,7 @@
          R-squared by column:
           0.854448  0.713594  0.568249  0.840944  0.793689  0.38477  0.709902  0.91633"""
 
-    f = fit(Factor, tb, 1:8, 1:1, 4, subset=(1:224).>2, svdalg=QRIteration())
+    f = fit(Factor, tb, 1:8, 1:1, 4, subset=(1:223).>1, svdalg=QRIteration())
     @test f.svdca isa SVDcache
     @test f.fac ≈ f3.fac
     @test f.Λ ≈ f3.Λ

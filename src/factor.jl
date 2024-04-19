@@ -1,4 +1,52 @@
 """
+    AbstractNFactorCriterion
+
+Types for specifying the method for determining the number of unobserved factors.
+"""
+abstract type AbstractNFactorCriterion end
+
+ICp2penalty(N::Integer, T::Integer) = (N + T) / (N * T) * log(min(N, T))
+
+"""
+    BaiNg{P} <: AbstractNFactorCriterion
+
+Criterion of the form defined in Bai and Ng (2002) with penalty function of type `P`.
+The default is to use the ICp2 criterion with `ICp2penalty`.
+
+# Reference
+**Bai, Jushan and Serena Ng.** 2002.
+"Determining the Number of Factors in Approximate Factor Models."
+*Econometrica* 70 (1): 191--221.
+"""
+struct BaiNg{P} <: AbstractNFactorCriterion
+    nfacmax::Int
+    p::P
+    BaiNg(nfacmax, p=ICp2penalty) = new{typeof(p)}(nfacmax, p)
+end
+
+criterion(c::BaiNg, nfac::Integer, s::AbstractFloat, N::Integer, T::Integer) =
+    log(1 - s) + nfac * c.p(N, T)
+
+function nfactor(c::BaiNg, S::AbstractVector, N::Integer, T::Integer)
+    # Assume S contains valid singular values but still check the order
+    issorted(S, rev=true) || throw(ArgumentError(
+        "singular values in S must be sorted in reverse order"))
+    Ssum = sum(abs2, S)
+    cmin = Inf
+    nfac = 0
+    s = 0.0
+    for n in 0:min(c.nfacmax, length(S))
+        n > 0 && (s += (S[n])^2)
+        cn = criterion(c, n, s/Ssum, N, T)
+        if cn < cmin
+            cmin = cn
+            nfac = n
+        end
+    end
+    return nfac
+end
+
+"""
     Factor{TF, S} <: RegressionModel
 
 Results and cache from estimating a factor model.
@@ -21,7 +69,6 @@ See also [`fit`](@ref) and [`fit!`](@ref).
 - `tss::Vector{TF}`: total sum of squares for each columns of `Ystd`.
 - `rss::Vector{TF}`: residual sum of squares for each columns of `Ystd`.
 - `r2::Vector{TF}`: r-squared for each columns of `Ystd`.
-- `esample::BitVector`: indicators for rows involved in estimation from original data table when constructing `Y`; irrelevant to estimation once `Y` is given.
 """
 struct Factor{TF<:AbstractFloat, S<:Union{SDDcache{TF}, SVDcache{TF}, Nothing}} <: RegressionModel
     Y::Matrix{TF}
@@ -38,7 +85,6 @@ struct Factor{TF<:AbstractFloat, S<:Union{SDDcache{TF}, SVDcache{TF}, Nothing}} 
     tss::Vector{TF}
     rss::Vector{TF}
     r2::Vector{TF}
-    esample::BitVector
 end
 
 response(f::Factor) = f.Y
@@ -46,6 +92,8 @@ modelmatrix(f::Factor) = f.fac
 coef(f::Factor) = f.Λ
 residuals(f::Factor) = f.resid
 r2(f::Factor) = f.r2
+
+nfactor(f::Factor) = size(f.fac, 2)
 
 # Assume balanced panel (no missing/nan)
 function _standardize!(out::AbstractMatrix, sd::AbstractVector, Y::AbstractMatrix)
@@ -60,17 +108,19 @@ function _standardize!(out::AbstractMatrix, sd::AbstractVector, Y::AbstractMatri
 end
 
 function _factor!(Y, Ystd, Ysd, Yca, fac, crossfac, Λ, crossΛu, svdca, nfo, resid,
-        tss, rss, r2; maxiter::Integer=10000, tol::Real=1e-8)
+        tss, rss, r2, computestdsvd; maxiter::Integer=10000, tol::Real=1e-8)
     nfac = size(fac, 2)
     nfu = nfac - nfo
     rfu = nfo+1:nfac
-    _standardize!(Ystd, Ysd, Y)
+    computestdsvd && _standardize!(Ystd, Ysd, Y)
     if nfu > 0
-        # SVD always overwrites the matrix
-        copyto!(Yca, Ystd)
-        # Throw error if Ystd contains NaN
-        U, S, VT = _svd!(svdca, Yca)
-        fac[:,rfu] .= view(U,:,1:nfu) .* view(S,1:nfu)'
+        if computestdsvd
+            # SVD always overwrites the matrix
+            copyto!(Yca, Ystd)
+            # Throw error if Ystd contains NaN
+            _svd!(svdca, Yca)
+        end
+        fac[:,rfu] .= view(svdca.U,:,1:nfu) .* view(svdca.S,1:nfu)'
     end
     # The simple case with balanced panel that does not require a loop
     if nfo == 0 || nfu == 0
@@ -119,11 +169,32 @@ function _factor!(Y, Ystd, Ysd, Yca, fac, crossfac, Λ, crossΛu, svdca, nfo, re
     return nothing
 end
 
-function Factor(Y::AbstractMatrix, facobs::Union{AbstractMatrix, Nothing},
-        nfac::Integer, esample::BitVector;
+function Factor(Y::AbstractMatrix, facobs::Union{AbstractVecOrMat, Nothing},
+        nfac::Union{Integer, AbstractNFactorCriterion};
         svdalg::Algorithm=default_svd_alg(Y), maxiter::Integer=10000, tol::Real=1e-8)
     # ! To Do: Allow unbalanced panel and restrictions on loading coefficients
-    nfac > 0 || throw(ArgumentError("nfac must be positive"))
+    Y = convert(Matrix, Y)
+    T, N = size(Y)
+    Ystd = similar(Y)
+    Ysd = similar(Y, N)
+    Yca = similar(Ystd)
+    if nfac isa Integer
+        nfac > 0 || throw(ArgumentError("nfac must be positive"))
+        computestdsvd = true
+    else
+        facobs === nothing || throw(ArgumentError(
+            "selection of factor number is not supported with observed factors"))
+        _standardize!(Ystd, Ysd, Y)
+        copyto!(Yca, Ystd)
+        svdca = svdcache(svdalg, Ystd)
+        U, S, VT = _svd!(svdca, Yca)
+        nfac = nfactor(nfac, S, N, T)
+        nfac > 0 || error(
+            "there is no factor structure based on the selection criterion")
+        computestdsvd = false
+    end
+    nfac > min(T, N) && throw(ArgumentError(
+        "number of factors cannot be greater than $(min(T, N)) given the size of Y"))
     if facobs === nothing
         nfo = 0
         nfu = nfac
@@ -134,12 +205,9 @@ function Factor(Y::AbstractMatrix, facobs::Union{AbstractMatrix, Nothing},
             "number of observed factors ($nfo) is greater than nfac ($nfac)"))
         any(isnan, facobs) && throw(ArgumentError(
             "NaN is not allowed for observed factors"))
+        size(facobs, 1) == T || throw(DimensionMismatch(
+            "facobs and Y do not have the same number of rows"))
     end
-    Y = convert(Matrix, Y)
-    T, N = size(Y)
-    Ystd = similar(Y)
-    Ysd = similar(Y, N)
-    Yca = similar(Ystd)
     fac = similar(Y, T, nfac)
     if nfo > 0
         fac[:,1:nfo] .= facobs
@@ -151,23 +219,65 @@ function Factor(Y::AbstractMatrix, facobs::Union{AbstractMatrix, Nothing},
     rss = similar(Y, N)
     r2 = similar(Y, N)
     crossΛu = nfo == 0 || nfu == 0 ? nothing : similar(Y, nfu, nfu)
-    svdca = nfu > 0 ? svdcache(svdalg, Ystd) : nothing
-    _factor!(Y, Ystd, Ysd, Yca, fac, crossfac, Λ, crossΛu, svdca, nfo, resid, tss, rss, r2;
-        maxiter=maxiter, tol=tol)
+    if computestdsvd
+        svdca = nfu > 0 ? svdcache(svdalg, Ystd) : nothing
+    end
+    _factor!(Y, Ystd, Ysd, Yca, fac, crossfac, Λ, crossΛu, svdca, nfo, resid, tss, rss, r2,
+        computestdsvd; maxiter=maxiter, tol=tol)
     return Factor(Y, Ystd, Ysd, Yca, fac, crossfac, Λ, crossΛu, svdca, nfo, resid,
-        tss, rss, r2, esample)
+        tss, rss, r2)
 end
 
-Factor(Y::AbstractMatrix, nfac::Integer, esample::BitVector; kwargs...) =
-    Factor(Y, nothing, nfac, esample; kwargs...)
+Factor(Y::AbstractMatrix, nfac::Union{Integer, AbstractNFactorCriterion}; kwargs...) =
+        Factor(Y, nothing, nfac; kwargs...)
+
+function _factor_tabletomat(data, names, fonames, subset, TF)
+    checktable(data)
+    names isa Symbol && (names = (names,))
+    N = length(names)
+    _checknames(names) || throw(
+        ArgumentError("invalid names; must be integers or `Symbol`s"))
+    if fonames !== nothing
+        fonames isa Symbol && (fonames = (fonames,))
+        nfo = length(fonames)
+        if nfo == 0
+            fonames = nothing
+        else
+            _checknames(fonames) || throw(
+                ArgumentError("invalid fonames; must be integers or `Symbol`s"))
+        end
+    end
+    Tfull = Tables.rowcount(data)
+    subset === nothing || length(subset) == Tfull ||
+        throw(ArgumentError("length of subset ($(length(subset))) does not match the number of rows in data ($Tfull)"))
+    T = subset === nothing ? Tfull : sum(subset)
+    subset === nothing && (subset = :)
+    # ! missing, nan and inf are not handled
+    Y = Matrix{TF}(undef, T, N)
+    for i in 1:N
+        Y[:,i] .= view(getcolumn(data, names[i]), subset)
+    end
+    if fonames === nothing
+        faco = nothing
+    else
+        faco = Matrix{TF}(undef, T, nfo)
+        for i in 1:nfo
+            faco[:,i] .= view(getcolumn(data, fonames[i]), subset)
+        end
+    end
+    return Y, faco
+end
 
 """
-    fit(::Type{<:Factor}, data, names, fonames, nfac::Integer; kwargs...)
+    fit(::Type{<:Factor}, data, names, fonames,
+        nfac::Union{Integer, AbstractNFactorCriterion}; kwargs...)
 
 Fit a factor model with `nfac` factors using variables indexed by `names`
 from a `Tables.jl`-compatible `data` table.
 Factors that are observed are specified with `fonames`
 as indices of columns from `data`.
+When only unobserved factors are involved,
+the number of factors may be selected based on a defined criterion.
 R-squared for each variable is computed based on standardized data
 with zero mean and unit standard deviation.
 See also [`Factor`](@ref) and [`fit!`](@ref).
@@ -185,43 +295,12 @@ See also [`Factor`](@ref) and [`fit!`](@ref).
 In *Handbook of Macroeconomics*, Vol. 2A,
 edited by John B. Taylor and Harald Uhlig, 415--525. Amsterdam: Elsevier.
 """
-function fit(::Type{<:Factor}, data, names, fonames, nfac::Integer;
+function fit(::Type{<:Factor}, data, names, fonames,
+        nfac::Union{Integer, AbstractNFactorCriterion};
         subset::Union{BitVector, Nothing}=nothing, TF::Type=Float64,
         svdalg::Algorithm=DivideAndConquer(), maxiter::Integer=10000, tol::Real=1e-8)
-    checktable(data)
-    names isa Symbol && (names = (names,))
-    N = length(names)
-    N >= nfac || throw(ArgumentError("number of columns must be at least $nfac"))
-    _checknames(names) || throw(
-        ArgumentError("invalid names; must be integers or `Symbol`s"))
-    if fonames !== nothing
-        fonames isa Symbol && (fonames = (fonames,))
-        nfo = length(fonames)
-        if nfo == 0
-            fonames = nothing
-        else
-            _checknames(fonames) || throw(
-                ArgumentError("invalid fonames; must be integers or `Symbol`s"))
-        end
-    end
-    Tfull = Tables.rowcount(data)
-    subset === nothing || length(subset) == Tfull ||
-        throw(ArgumentError("length of subset ($(length(subset))) does not match the number of rows in data ($Tfull)"))
-    T = subset === nothing ? Tfull : sum(subset)
-    # ! missing, nan and inf are not handled
-    Y = Matrix{TF}(undef, T, N)
-    for i in 1:N
-        Y[:,i] .= view(getcolumn(data, names[i]), subset)
-    end
-    if fonames === nothing
-        faco = nothing
-    else
-        faco = Matrix{TF}(undef, T, nfo)
-        for i in 1:nfo
-            faco[:,i] .= view(getcolumn(data, fonames[i]), subset)
-        end
-    end
-    return Factor(Y, faco, nfac, subset; svdalg=svdalg, maxiter=maxiter, tol=tol)
+    Y, faco = _factor_tabletomat(data, names, fonames, subset, TF)
+    return Factor(Y, faco, nfac; svdalg=svdalg, maxiter=maxiter, tol=tol)
 end
 
 """
@@ -234,7 +313,7 @@ See also [`Factor`](@ref) and [`fit`](@ref).
 """
 function fit!(f::Factor; maxiter::Integer=10000, tol::Real=1e-8)
     _factor!(f.Y, f.Ystd, f.Ysd, f.Yca, f.fac, f.crossfac, f.Λ, f.crossΛu, f.svdca,
-        f.nfaco, f.resid, f.tss, f.rss, f.r2; maxiter=maxiter, tol=tol)
+        f.nfaco, f.resid, f.tss, f.rss, f.r2, true; maxiter=maxiter, tol=tol)
     return f
 end
 
@@ -242,15 +321,15 @@ show(io::IO, f::Factor) =
     print(io, size(f.fac,1), '×', size(f.fac,2), " ", typeof(f))
 
 function show(io::IO, ::MIME"text/plain", f::Factor)
+    nfac = nfactor(f)
     nfo = f.nfaco
-    nfu = size(f.fac,2) - nfo
+    nfu = nfac - nfo
     print(io, f, " with ", nfu, " unobserved factor")
     nfu > 1 && print(io, "s")
     print(io, " and ", nfo, " observed factor")
     nfo > 1 && print(io, "s")
     println(io, ":")
     M, N = displaysize(io)
-    nfac = size(f.fac, 2)
     NF = min(max(nfac+4, 5), 10, floor(Int, M/2))
     Base.print_matrix(IOContext(io, :compact=>true, :limit=>true,
         :displaysize=>(M-4-NF+5, N)), f.fac, "  ")

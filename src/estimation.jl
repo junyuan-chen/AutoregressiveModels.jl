@@ -1,9 +1,9 @@
 """
-    OLS <: RegressionModel
+    VAROLS <: RegressionModel
 
 Data from an ordinary least squares regression for vector autoregression estimation.
 """
-struct OLS{TF<:AbstractFloat, TI<:Union{Vector{TF}, Nothing},
+struct VAROLS{TF<:AbstractFloat, TI<:Union{Vector{TF}, Nothing},
         TC<:Union{Matrix{TF}, Nothing},
         CF<:Union{Cholesky{TF, Matrix{TF}}, Nothing},
         CL<:Union{Matrix{TF}, Nothing}} <: RegressionModel
@@ -18,12 +18,30 @@ struct OLS{TF<:AbstractFloat, TI<:Union{Vector{TF}, Nothing},
     residvcov::Matrix{TF}
     residchol::CF
     residcholL::CL
-    esample::BitVector
+    esample::Union{BitVector, Nothing}
     dofr::Int
 end
 
-function OLS(Y::AbstractMatrix, X::AbstractMatrix, esample::BitVector, dofr::Int,
-        nocons::Bool, cholresid::Bool)
+response(m::VAROLS) = m.Y
+modelmatrix(m::VAROLS) = m.X
+coef(m::VAROLS) = m.coef
+residuals(m::VAROLS) = m.resid
+dof_residual(m::VAROLS) = m.dofr
+
+coefB(m::VAROLS) = m.coefB
+intercept(m::VAROLS) = m.intercept
+coefcorrected(m::VAROLS) = m.coefcorrected
+residvcov(m::VAROLS) = m.residvcov
+# Return the copied lower-triangular matrix instead of factorization
+residchol(m::VAROLS) = m.residcholL
+
+nvar(m::VAROLS) = size(response(m), 2)
+arorder(m::VAROLS) = size(coefB(m), 2) ÷ size(coefB(m), 1)
+hasintercept(::VAROLS{TF, Vector{TF}}) where TF = true
+hasintercept(::VAROLS{TF, Nothing}) where TF = false
+
+function VAROLS(Y::AbstractMatrix, X::AbstractMatrix, esample::Union{BitVector, Nothing},
+        dofr::Int, nocons::Bool, cholresid::Bool)
     Y = convert(Matrix, Y)
     X = convert(Matrix, X)
     crossX = X'X
@@ -50,46 +68,130 @@ function OLS(Y::AbstractMatrix, X::AbstractMatrix, esample::BitVector, dofr::Int
         residchol = nothing
         residcholL = nothing
     end
-    return OLS(Y, X, crossX, coef, coefB, intercept, nothing, resid, residvcov, residchol,
+    return VAROLS(Y, X, crossX, coef, coefB, intercept, nothing, resid, residvcov, residchol,
         residcholL, esample, dofr)
 end
 
-response(m::OLS) = m.Y
-modelmatrix(m::OLS) = m.X
-coef(m::OLS) = m.coef
-residuals(m::OLS) = m.resid
-dof_residual(m::OLS) = m.dofr
-
-coefB(m::OLS) = m.coefB
-intercept(m::OLS) = m.intercept
-coefcorrected(m::OLS) = m.coefcorrected
-residvcov(m::OLS) = m.residvcov
-# Return the copied lower-triangular matrix instead of factorization
-residchol(m::OLS) = m.residcholL
-
-show(io::IO, ols::OLS) = print(io, "OLS regression ", size(residuals(ols)))
-
-function _fillYX!(Y, X, esampleT, aux, tb, idx, nlag, subset, nocons)
-    i0 = nocons ? 0 : 1
-    nx = length(idx)
-    for j in 1:nx
-        col = getcolumn(tb, idx[j])
-        Tfull = length(col)
-        v = view(col, nlag+1:Tfull)
-        subset === nothing || j > 1 || (esampleT .&= view(subset, nlag+1:Tfull))
-        _esample!(esampleT, aux, v)
-        copyto!(view(Y, esampleT, j), view(v, esampleT))
-        for l in 1:nlag
-            v = view(col, nlag+1-l:Tfull-l)
-            subset === nothing || j > 1 ||
-                (esampleT .&= view(subset, nlag+1-l:Tfull-l))
-            _esample!(esampleT, aux, v)
-            # Variables with the same lag are put together
-            # The first column in X may be the intercept
-            copyto!(view(X, esampleT, i0+(l-1)*nx+j), view(v, esampleT))
+function fit!(m::VAROLS{TF}; Yinresid::Bool=false) where TF
+    X, coef, resid = m.X, m.coef, m.resid
+    Y = Yinresid ? m.resid : m.Y
+    mul!(coef, X', Y)
+    mul!(m.crossXcache, X', X)
+    ldiv!(cholesky!(m.crossXcache), coef)
+    if m.intercept === nothing
+        copyto!(m.coefB, coef')
+    else
+        copyto!(m.coefB, view(coef, 2:size(coef,1), :)')
+        copyto!(m.intercept, view(coef, 1, :))
+    end
+    Yinresid || copyto!(resid, Y)
+    mul!(resid, X, coef, -1.0, 1.0)
+    mul!(m.residvcov, resid', resid)
+    rdiv!(m.residvcov, m.dofr)
+    residchol = m.residchol
+    residcholL = m.residcholL
+    if residchol !== nothing
+        Cfactors = getfield(residchol, :factors)
+        Cuplo = getfield(residchol, :uplo)
+        copyto!(Cfactors, m.residvcov)
+        # residchol could involve changes in immutable objects but it is not used
+        residchol = cholesky!(Cfactors)
+        N = size(m.residvcov, 1)
+        @inbounds for j in 1:N
+            for i in 1:j-1
+                residcholL[i,j] = zero(TF)
+            end
+            for i in j:N
+                residcholL[i,j] = Cuplo === 'U' ? Cfactors[j,i] : Cfactors[i,j]
+            end
         end
     end
-    return esampleT
+    return nothing
+end
+
+# Assume no missing/NaN in Yfull
+function _fillYX!(Y, X, Yfull::AbstractMatrix, nlag::Integer, nocons::Bool)
+    j0 = nocons ? 0 : 1
+    Tfull, N = size(Yfull)
+    for j in 1:N
+        Y[:,j] .= view(Yfull, nlag+1:Tfull, j)
+        for l in 1:nlag
+            # Variables with the same lag are put together
+            # The first column in X may be the intercept
+            X[:,j0+(l-1)*N+j] .= view(Yfull, nlag+1-l:Tfull-l, j)
+        end
+    end
+end
+
+function fit(::Type{<:Union{<:VARProcess, <:VAROLS}}, data::AbstractMatrix, nlag::Integer;
+        choleskyresid::Bool=false, adjust_dofr::Bool=true,
+        nocons::Bool=false, TF::Type=Float64)
+    Tfull, N = size(data)
+    T = Tfull - nlag
+    Y = Matrix{TF}(undef, T, N)
+    X = Matrix{TF}(undef, T, nocons ? N*nlag : 1+N*nlag)
+    nocons || fill!(view(X, :, 1), one(TF))
+    _fillYX!(Y, X, data, nlag, nocons)
+    dofr = adjust_dofr ? T - size(X,2) : T
+    m = VAROLS(Y, X, nothing, dofr, nocons, choleskyresid)
+    return m
+end
+
+"""
+    fit!(m::VAROLS, [data::AbstractMatrix]; kwargs...)
+
+Reestimate vector autoregression of the same specification for `m`
+with ordinary least squares and store results in `m` in-place.
+Modified data for variables may be provided as columns of `data` matrix
+where all data are valid for estimation (no `missing`, `NaN`, etc.)
+and have the number of observations that matches `m`.
+If `data` is not specified,
+existing values stored in `m` are used.
+See also [`fit`](@ref).
+
+# Keywords
+- `Yinresid::Bool=false`: store data in `residual(m)` for estimation; this avoids copying data from `response(m)` to `residual(m)`.
+"""
+function fit!(m::VAROLS, data::AbstractMatrix; Yinresid::Bool=false)
+    nlag = arorder(m)
+    Tfull, N = size(data)
+    Tfull == size(response(m), 1) + nlag && N == nvar(m) ||
+        throw(DimensionMismatch("size of data does not match m"))
+    i0 = hasintercept(m) ? 1 : 0
+    # if Yinresid=true, Y in VAROLS is left untouched but use resid in-place
+    # This avoids the need of copying Y to resid for computing residuals
+    Y = Yinresid ? residuals(m) : response(m)
+    X = modelmatrix(m)
+    # esample is not used here
+    copyto!(Y, view(data, nlag+1:Tfull, :))
+    # Assume the column for constant term remains untouched
+    for l in 1:nlag
+        copyto!(view(X, :, i0+(l-1)*N+1:i0+l*N), view(data, nlag+1-l:Tfull-l, :))
+    end
+    fit!(m; Yinresid=Yinresid)
+end
+
+"""
+    VARProcess(m::VAROLS; copy::Bool=false)
+
+Construct a `VARProcess` based on the coefficient estimates from `m`.
+"""
+function VARProcess(m::VAROLS; copy::Bool=false)
+    if hasintercept(m)
+        return VARProcess(coefB(m), intercept(m), copy=copy)
+    else
+        return VARProcess(coefB(m), copy=copy)
+    end
+end
+
+function show(io::IO, ols::VAROLS)
+    M, N = size(modelmatrix(ols))
+    nv = nvar(ols)
+    nlag = arorder(ols)
+    print(io, M, '×', N, " OLS regression for VAR with ", nv, " variable")
+    nv > 1 && print(io, "s")
+    print(io, " and ", nlag, " lag")
+    nlag > 1 && print(io, "s")
 end
 
 """
@@ -134,8 +236,8 @@ Cholesky factorization of the residual variance-covariance matrix.
 """
 residchol(r::VectorAutoregression) = residchol(r.est)
 
-nvar(r::VectorAutoregression) = length(r.names)
-arorder(r::VectorAutoregression) = size(coef(r), 1) ÷ size(coef(r), 2)
+nvar(r::VectorAutoregression) = nvar(r.est)
+arorder(r::VectorAutoregression) = arorder(r.est)
 maorder(r::VectorAutoregression) = 0
 hasintercept(::VectorAutoregression{TE, HI}) where {TE, HI} = HI
 
@@ -176,26 +278,47 @@ Base.@propagate_inbounds residvcov(r::VectorAutoregression, id1, id2=id1) =
 
 Construct a `VARProcess` based on the coefficient estimates from `r`.
 """
-function VARProcess(r::VectorAutoregression; copy::Bool=false)
-    m = r.est
-    if hasintercept(r)
-        return VARProcess(coefB(m), intercept(m), copy=copy)
-    else
-        return VARProcess(coefB(m), copy=copy)
-    end
-end
+VARProcess(r::VectorAutoregression; copy::Bool=false) =
+    VARProcess(r.est; copy=copy)
 
 _checknames(names) = all(n isa Union{Integer, Symbol} for n in names)
 
 _toname(data, name::Symbol) = name
 _toname(data, i::Integer) = Tables.columnnames(data)[i]
 
+function _fillYX!(Y, X, esampleT, aux, tb, idx, nlag, subset, nocons)
+    i0 = nocons ? 0 : 1
+    nx = length(idx)
+    for j in 1:nx
+        col = getcolumn(tb, idx[j])
+        Tfull = length(col)
+        v = view(col, nlag+1:Tfull)
+        subset === nothing || j > 1 || (esampleT .&= view(subset, nlag+1:Tfull))
+        _esample!(esampleT, aux, v)
+        copyto!(view(Y, esampleT, j), view(v, esampleT))
+        for l in 1:nlag
+            v = view(col, nlag+1-l:Tfull-l)
+            subset === nothing || j > 1 ||
+                (esampleT .&= view(subset, nlag+1-l:Tfull-l))
+            _esample!(esampleT, aux, v)
+            # Variables with the same lag are put together
+            # The first column in X may be the intercept
+            copyto!(view(X, esampleT, i0+(l-1)*nx+j), view(v, esampleT))
+        end
+    end
+    return esampleT
+end
+
 """
     fit(::Type{<:VARProcess}, data, names, nlag::Integer; kwargs...)
+    fit(::Type{<:Union{<:VARProcess, <:VAROLS}}, data::AbstractMatrix, nlag::Integer; kwargs...)
 
 Estimate vector autoregression with ordinary least squares
 using `nlag` lags of variables indexed by `names`
 from a `Tables.jl`-compatible `data` table.
+Alternatively, if all data are valid for estimation (no `missing`, `NaN`, etc.),
+`data` can be a matrix only containing the relevant columns (no `names`).
+See also [`fit!`](@ref).
 
 # Keywords
 - `subset::Union{BitVector, Nothing}=nothing`: subset of `data` to be used for estimation.
@@ -237,7 +360,7 @@ function fit(::Type{<:VARProcess}, data, names, nlag::Integer;
     end
     T = T1
     dofr = adjust_dofr ? T - size(X,2) : T
-    m = OLS(Y, X, esampleT, dofr, nocons, choleskyresid)
+    m = VAROLS(Y, X, esampleT, dofr, nocons, choleskyresid)
     return VectorAutoregression(m, names,
         Dict{Symbol,Int}(n=>i for (i,n) in enumerate(names)), nocons)
 end
@@ -395,7 +518,7 @@ function biascorrect(r::VectorAutoregression;
     coefc = Matrix{Float64}(undef, NP, N)
     copyto!(coefc, view(B, 1:N, :)')
     m = r.est
-    olsc = OLS(m.Y, m.X, m.crossXcache, m.coef, m.coefB, m.intercept, coefc, m.resid,
+    olsc = VAROLS(m.Y, m.X, m.crossXcache, m.coef, m.coefB, m.intercept, coefc, m.resid,
         m.residvcov, m.residchol, m.residcholL, m.esample, m.dofr)
     return VectorAutoregression(olsc, r.names, r.lookup, !hasintercept(r)), δ
 end

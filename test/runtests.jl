@@ -17,7 +17,8 @@ const tests = [
     "estimation",
     "bootstrap",
     "arma",
-    "factor"
+    "factor",
+    "dfm"
 ]
 
 printstyled("Running tests:\n", color=:blue, bold=true)
