@@ -68,8 +68,8 @@ export VARProcess,
 
 include("lapack.jl")
 include("utils.jl")
-include("process.jl")
-include("estimation.jl")
+include("varprocess.jl")
+include("varestimation.jl")
 include("bootstrap.jl")
 include("arma.jl")
 include("factor.jl")
