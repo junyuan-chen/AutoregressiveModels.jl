@@ -7,7 +7,7 @@ struct SDDcache{TF<:Union{Float64, Float32}}
     S::Vector{TF}
     work::Vector{TF}
     iwork::Vector{BlasInt}
-    info::Base.RefValue{Int64}
+    info::Base.RefValue{BlasInt}
 end
 
 function SDDcache(A::AbstractMatrix{TF}) where TF<:Union{Float64, Float32}
@@ -40,7 +40,7 @@ struct SVDcache{TF<:Union{Float64, Float32}}
     VT::Matrix{TF}
     S::Vector{TF}
     work::Vector{TF}
-    info::Base.RefValue{Int64}
+    info::Base.RefValue{BlasInt}
 end
 
 function SVDcache(A::AbstractMatrix{TF}) where TF<:Union{Float64, Float32}

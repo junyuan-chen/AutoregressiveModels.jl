@@ -36,7 +36,7 @@ export VARProcess,
        histvar!,
        histvar,
 
-       OLS,
+       VAROLS,
        intercept,
        coefcorrected,
        residvcov,
@@ -51,14 +51,28 @@ export VARProcess,
 
        ARMAProcess,
 
-       Factor
+       AbstractNFactorCriterion,
+       ICp2penalty,
+       BaiNg,
+       criterion,
+       nfactor,
+       Factor,
+
+       AbstractDetrend,
+       NoTrend,
+       FirstDiff,
+       nskip,
+       detrend!,
+       invdetrend!,
+       DynamicFactor
 
 include("lapack.jl")
 include("utils.jl")
-include("process.jl")
-include("estimation.jl")
+include("varprocess.jl")
+include("varestimation.jl")
 include("bootstrap.jl")
 include("arma.jl")
 include("factor.jl")
+include("dfm.jl")
 
 end # module AutoregressiveModels

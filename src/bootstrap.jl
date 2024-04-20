@@ -1,60 +1,3 @@
-# An unsafe in-place version of OLS for bootstrap
-function _fit!(m::OLS{TF}) where TF
-    Y = m.resid
-    X = m.X
-    coef = m.coef
-    mul!(coef, X', Y)
-    mul!(m.crossXcache, X', X)
-    ldiv!(cholesky!(m.crossXcache), coef)
-    if m.intercept === nothing
-        copyto!(m.coefB, coef')
-    else
-        copyto!(m.coefB, view(coef, 2:size(coef,1), :)')
-        copyto!(m.intercept, view(coef, 1, :))
-    end
-    mul!(Y, X, coef, -1.0, 1.0)
-    mul!(m.residvcov, Y', Y)
-    rdiv!(m.residvcov, m.dofr)
-    residchol = m.residchol
-    residcholL = m.residcholL
-    if residchol !== nothing
-        Cfactors = getfield(residchol, :factors)
-        Cuplo = getfield(residchol, :uplo)
-        copyto!(Cfactors, m.residvcov)
-        # residchol could involve changes in immutable objects but it is not used
-        residchol = cholesky!(Cfactors)
-        N = size(m.residvcov, 1)
-        @inbounds for j in 1:N
-            for i in 1:j-1
-                residcholL[i,j] = zero(TF)
-            end
-            for i in j:N
-                residcholL[i,j] = Cuplo === 'U' ? Cfactors[j,i] : Cfactors[i,j]
-            end
-        end
-    end
-    return nothing
-end
-
-# An unsafe version for bootstrap
-function _fitvar!(data::Matrix, m::OLS, nlag, nocons)
-    i0 = nocons ? 0 : 1
-    # Y in OLS is left untouched but use resid in-place
-    Y = residuals(m)
-    X = modelmatrix(m)
-    N = size(Y, 2)
-    # esample is not used here
-    for j in 1:N
-        col = view(data, :, j)
-        Tfull = length(col)
-        copyto!(view(Y, :, j), view(col, nlag+1:Tfull))
-        for l in 1:nlag
-            copyto!(view(X, :, i0+(l-1)*N+j), view(col, nlag+1-l:Tfull-l))
-        end
-    end
-    _fit!(m)
-end
-
 randomindex(r::VectorAutoregression) = sample(1:size(residuals(r),1))
 
 function wilddraw!(out, r::VectorAutoregression)
@@ -103,7 +46,7 @@ function _bootstrap!(ks, stats, r::VectorAutoregression, var, initialindex, draw
             var(view(bootdata, t, :), _reshape(view(bootdata, t-1:-1:t-nlag, :)', N*nlag))
         end
         keepbootdata && (allbootdata[k] = copy(bootdata))
-        estimatevar && _fitvar!(bootdata, m, nlag, !hasintercept(r))
+        estimatevar && fit!(m, bootdata; Yinresid=true)
         for stat in stats
             nt = (out=selectdim(stat[1], ndims(stat[1]), k), data=bootdata, r=rk)
             stat[2](nt)

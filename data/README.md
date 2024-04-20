@@ -9,7 +9,7 @@ that generates these files from original data.
 
 | Name | Source | File | Note |
 | :--: | :----: | :--: | :--- |
-| lpw_est_data.mat | [Li, Plagborg-Møller and Wolf (2024)](https://doi.org/10.1016/j.jeconom.2024.105722) | `DFM/Subroutines/SW_DFM_Estimation/data/hom_fac_1.xlsx` | Data are processed with [`lpw_savedata.m`](src/lpw_savedata.m) and used in [Stock and Watson (2016)](https://doi.org/10.1016/bs.hesmac.2016.04.002) |
+| lpw_data.mat | [Li, Plagborg-Møller and Wolf (2024)](https://doi.org/10.1016/j.jeconom.2024.105722) | `DFM/Subroutines/SW_DFM_Estimation/data/hom_fac_1.xlsx` | Data are processed with [`lpw_savedata.m`](src/lpw_savedata.m) and used in [Stock and Watson (2016)](https://doi.org/10.1016/bs.hesmac.2016.04.002) |
 
 ## References
 

@@ -262,6 +262,87 @@ end;
   lsout.r2vec = r2vec;   lsout.nobs = nobs;
   lsout.nt = nt;         lsout.ns = ns;
 
+
+%% Content from factor_estimation_ls_full.m
+
+if levels
+  lsout.fac_diff = lsout.fac;
+  lsout.fac = cumsum_nan(lsout.fac(2:end,:)); % If data was differenced, cumulate factors
+end
+
+
+% Compute estimates of factor loadings;
+n_lc = 0;       % number of constraints placed on lambda
+lambda_constraints_full = est_par.fac_par.lambda_constraints_full;
+if size(lambda_constraints_full,2) > 1;
+  lam_c_index = lambda_constraints_full(:,1);        % Which row of lambda: Constraints are then R*lambda = r
+  lam_c_R     = lambda_constraints_full(:,2:end-1);  % R matrix
+  lam_c_r     = lambda_constraints_full(:,end);      % r value
+  n_lc = size(lambda_constraints_full,1);
+end;
+
+lam_mat = NaN(n_series,est_par.fac_par.nfac.total);
+ismpl = smpl(calvec,nfirst,nlast,nper);
+uar_coef_mat = NaN(n_series,n_uarlag);
+uar_ser_mat = NaN(n_series,1);
+uar_resid_mat = NaN(n_series,size(calvec,1));
+res_mat = NaN(n_series,size(calvec,1));
+r2_mat = NaN(n_series,1);                              % R-squared value
+trend_tmp = (1:1:size(calvec,1))';
+for is = 1:n_series;
+  tmp = packr([data(ismpl==1,is) lsout.fac(ismpl==1,:) trend_tmp(ismpl==1)]);
+  itmp = tmp(:,end);
+  tmp = tmp(:,1:end-1+levels); % Include time trend if data is in levels
+  if size(tmp,1) >= ntmin;
+     y = tmp(:,1);
+     x = [tmp(:,2:end), ones(size(tmp,1),1)];
+     xxi = inv(x'*x);
+     bols = xxi*(x'*y);
+     b = bols;
+     % Check for restrictions and impose;
+     if n_lc > 0;
+      ii = lam_c_index == is;
+      if sum(ii) > 0;
+          R = [lam_c_R(ii==1,:), zeros(sum(ii),1)];   % No constraints on constant term
+          r = lam_c_r(ii==1,:);
+          tmp1 = xxi*R';
+          tmp2 = inv(R*tmp1);
+          b = bols - tmp1*tmp2*(R*bols-r);
+      end;
+     end;
+     lam_mat(is,:) = b(1:end-1-levels)';
+     u = y - x*b;
+     % Compute R-squared 
+     ssr = sum(u.^2);
+     ym = y - mean(y);
+     tss = sum(ym.^2);
+     r2_mat(is) = 1-(ssr/tss);
+     % Compute AR model for errors
+     if r2_mat(is) < 0.9999;
+      if levels==1 % If variables are in levels...
+       [~,arcoef,ser2] = VAR_CorrectBias(u(~isnan(u)),n_uarlag); % Bias-corrected AR coefficients
+       arcoef = arcoef(:)';
+       ser = sqrt(ser2);
+       ar_resid = NaN(size(u,1),1); % We don't really need the AR residuals later
+      else
+       [arcoef, ser, ar_resid] = uar(u,n_uarlag);    % AR Coefficients and ser 
+      end
+     else;
+      arcoef = zeros(n_uarlag,1);
+      ser = 0.0;
+      ar_resid = NaN(size(u,1),1);
+     end;
+     uar_coef_mat(is,:) = arcoef'; 
+     uar_ser_mat(is,1) = ser;
+     uar_resid_mat(is,itmp) = ar_resid';
+     res_mat(is,itmp) = u';
+  end;
+end;
+
+varout = varest(lsout.fac,est_par.var_par,est_par.smpl_par,levels,coint_rank);
+
+
 %% Save the data
-save("../lpw_est_data.mat", 'est_data')
+dataout = data(:,inclcode==1);
+save("../lpw_data.mat", 'dataout')
 

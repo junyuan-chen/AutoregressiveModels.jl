@@ -13,11 +13,12 @@ lpexampledata(name) = CSV.read(lpdatafile(name), DataFrame)
 
 const tests = [
     "lapack",
-    "process",
-    "estimation",
+    "varprocess",
+    "varestimation",
     "bootstrap",
     "arma",
-    "factor"
+    "factor",
+    "dfm"
 ]
 
 printstyled("Running tests:\n", color=:blue, bold=true)
