@@ -106,7 +106,7 @@ end
 
 nfactor(f::DynamicFactor) = nfactor(f.f)
 
-function _dfm_est!(Y, facX, crossfacX, Λ, u, lagca, crosslagca, arcoef, resid, σ, narlag)
+function _dfm_est!(Y, facX, crossfacX, Λ, u, lagca, crosslagca, arcoef, resid, σ, narlag, arexclude)
     Tfull, N = size(Y)
     # Estimate coefficients for common components
     Y1 = view(Y, Tfull-size(facX,1)+1:Tfull, :)
@@ -114,17 +114,23 @@ function _dfm_est!(Y, facX, crossfacX, Λ, u, lagca, crosslagca, arcoef, resid, 
     T = size(lagca, 1)
     T1 = size(u, 1)
     t1 = T1 - T + 1
-    dofr = size(lagca, 1) - size(lagca, 2)
+    dofr = T - narlag
     # Estimate coefficients for idiosyncratic components
     for n in 1:N
         coefn = view(arcoef, :, n)
         un = view(u, t1:T1, n)
         residn = view(resid, :, n)
-        for l in 1:narlag
-            lagca[:,l] .= view(u, t1-l:T1-l, n)
+        if arexclude !== nothing && n in arexclude
+            fill!(coefn, zero(eltype(coefn)))
+            copyto!(residn, un)
+            σ[n] = sqrt(sum(abs2, residn) / T)
+        else
+            for l in 1:narlag
+                lagca[:,l] .= view(u, t1-l:T1-l, n)
+            end
+            _ols!(un, lagca, crosslagca, coefn, residn)
+            σ[n] = sqrt(sum(abs2, residn) / dofr)
         end
-        _ols!(un, lagca, crosslagca, coefn, residn)
-        σ[n] = sqrt(sum(abs2, residn) / dofr)
     end
 end
 
@@ -133,7 +139,7 @@ function DynamicFactor(Y::AbstractMatrix, facobs::Union{AbstractVecOrMat, Nothin
         FacProc::Union{Type, Nothing}, nfaclag::Integer, narlag::Integer,
         X::Union{AbstractVecOrMat, Nothing}=nothing;
         svdalg::Algorithm=default_svd_alg(Y), maxiter::Integer=10000, tol::Real=1e-8,
-        facprockwargs::NamedTuple=NamedTuple())
+        arexclude=nothing, facprockwargs::NamedTuple=NamedTuple())
     Y = convert(Matrix, Y)
     Tfull, N = size(Y)
     nsk = nskip(trans)
@@ -149,7 +155,7 @@ function DynamicFactor(Y::AbstractMatrix, facobs::Union{AbstractVecOrMat, Nothin
         size(facobs, 1) == Tfull || throw(DimensionMismatch(
             "facobs and Y do not have the same number of rows"))
         facobs = convert(Matrix, facobs)
-        facobs0 = similar(facobs, T-nsk, size(facobs,2))
+        facobs0 = similar(facobs, Tfull-nsk, size(facobs,2))
         detrend!(trans, facobs0, facobs)
     end
     f = Factor(Y0, facobs0, nfac; svdalg=svdalg, maxiter=maxiter, tol=tol)
@@ -175,7 +181,8 @@ function DynamicFactor(Y::AbstractMatrix, facobs::Union{AbstractVecOrMat, Nothin
     arcoef = similar(Y, narlag, N)
     resid = similar(Y, T, N)
     σ = similar(Y, N)
-    _dfm_est!(Y, facX, crossfacX, Λ, u, lagca, crosslagca, arcoef, resid, σ, narlag)
+    _dfm_est!(Y, facX, crossfacX, Λ, u, lagca, crosslagca, arcoef, resid, σ,
+        narlag, arexclude)
     if FacProc !== nothing
         facproc = fit(FacProc, view(facX,:,1:nfac), nfaclag; facprockwargs...)
     else
@@ -186,17 +193,17 @@ function DynamicFactor(Y::AbstractMatrix, facobs::Union{AbstractVecOrMat, Nothin
 end
 
 function fit!(f::DynamicFactor; maxiter::Integer=10000, tol::Real=1e-8,
-        facprockwargs::NamedTuple=NamedTuple())
+        arexclude=nothing, facprockwargs::NamedTuple=NamedTuple())
     detrend!(f.trans, f.Y0, f.Y)
     if f.facobs !== nothing
-        facobs0 = nothing
-        detrend!(f.trans, facobs0, facobs)
+        detrend!(f.trans, f.facobs0, f.facobs)
+        copyto!(view(f.f.fac,:,1:f.f.nfaco), f.facobs0)
     end
     fit!(f.f; maxiter=maxiter, tol=tol)
     nfac = size(f.f.fac, 2)
     invdetrend!(f.trans, view(f.facX,:,1:nfac), f.f.fac)
     _dfm_est!(f.Y, f.facX, f.crossfacX, f.Λ, f.u, f.lagca, f.crosslagca, f.arcoef, f.resid,
-        f.σ, f.narlag)
+        f.σ, f.narlag, arexclude)
     f.facproc === nothing ||
         fit!(f.facproc, view(f.facX,:,1:nfac); facprockwargs...)
     return f
@@ -216,12 +223,17 @@ When only unobserved factors are involved,
 the number of factors may be selected based on a defined criterion.
 The type of the model for the evolution of factors
 may be specified with `FacProc`.
+See also [`DynamicFactor`](@ref) and [`fit!`](@ref).
+
 The meaning of the remaining arguments matches
 the corresponding fields in [`DynamicFactor`](@ref).
 All keyword arguments for fitting [`Factor`](@ref) are accepted.
-Any keyword argument for `FacProc` may be provided
-as a `NamedTuple` for the keyword `facprockwargs`.
-See also [`DynamicFactor`](@ref) and [`fit!`](@ref).
+The following are the additional keywords accepted.
+
+# Keywords
+- `arexclude=nothing`: set of indices for variables to be excluded from estimating
+the autoregressive coefficients of the idiosyncratic components.
+- `facprockwargs::NamedTuple=NamedTuple()`: keyword argument for `FacProc`.
 
 # Reference
 **Stock, James H. and Mark W. Watson.** 2016.
@@ -235,11 +247,12 @@ function fit(::Type{<:DynamicFactor}, data, names, fonames, trans::AbstractDetre
         X::Union{AbstractVecOrMat, Nothing}=nothing;
         subset::Union{BitVector, Nothing}=nothing, TF::Type=Float64,
         svdalg::Algorithm=DivideAndConquer(), maxiter::Integer=10000, tol::Real=1e-8,
-        facprockwargs::NamedTuple=NamedTuple())
+        arexclude=nothing, facprockwargs::NamedTuple=NamedTuple())
     Y, faco = _factor_tabletomat(data, names, fonames, subset, TF)
     X !== nothing && subset !== nothing && (X = view(X, subset, :))
     return DynamicFactor(Y, faco, trans, nfac, FacProc, nfaclag, narlag, X;
-        svdalg=svdalg, maxiter=maxiter, tol=tol, facprockwargs=facprockwargs)
+        svdalg=svdalg, maxiter=maxiter, tol=tol,
+        arexclude=arexclude, facprockwargs=facprockwargs)
 end
 
 show(io::IO, f::DynamicFactor) =
