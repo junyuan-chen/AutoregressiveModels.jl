@@ -98,6 +98,7 @@ end
           Not estimated"""
     end
 
+    if VERSION >= v"1.7"
     w = data[2:end,1:1]
     f2 = DynamicFactor(xbal, w, FirstDiff(), 4, nothing, 4, 4, 1:223, arexclude=(1,))
     @test abs.(f2.facX[10,1:4]) ≈ abs.([2.647070534273070, -0.409233763390545,
@@ -135,6 +136,7 @@ end
     @test f21.f.fac ≈ f2.f.fac
     @test f21.Λ ≈ f2.Λ
     @test f21.arcoef ≈ f2.arcoef
+    end # VERSION
 
     f3 = fit(DynamicFactor, tb, ibal, nothing, FirstDiff(), BaiNg(30),
         VAROLS, 4, 4, 1:224; subset=(1:224).>1)
